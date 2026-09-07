@@ -1,0 +1,6 @@
+{
+  "name": "Spark",
+  "description": "Ignite connections and share inspiring moments. Modern social media platform with feeds, stories, reels, real-time messaging, friends, and profiles.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
