@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "1063789912520",
+    "project_id": "helloworld-d72dc",
+    "storage_bucket": "helloworld-d72dc.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1063789912520:android:cea2b58db36aed6b6fa0fd",
+        "android_client_info": {
+          "package_name": "com.aistudio.sociva.social"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1063789912520-c7p7mauqget7eo7n82fc25fagptdt36e.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCT_y2Q2v1z5kKPH8nsAXC1cA1fgfWjshY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1063789912520-c7p7mauqget7eo7n82fc25fagptdt36e.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
