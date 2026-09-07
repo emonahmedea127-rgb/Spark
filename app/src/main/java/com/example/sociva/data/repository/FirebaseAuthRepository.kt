@@ -39,6 +39,9 @@ class FirebaseAuthRepository(
 
   private val auth: FirebaseAuth? by lazy {
     try {
+      if (com.google.firebase.FirebaseApp.getApps(context).isEmpty()) {
+        com.google.firebase.FirebaseApp.initializeApp(context.applicationContext)
+      }
       FirebaseAuth.getInstance()
     } catch (e: Exception) {
       Log.w(TAG, "FirebaseAuth initialization failed: ${e.message}")
@@ -48,6 +51,9 @@ class FirebaseAuthRepository(
 
   private val firestore: FirebaseFirestore? by lazy {
     try {
+      if (com.google.firebase.FirebaseApp.getApps(context).isEmpty()) {
+        com.google.firebase.FirebaseApp.initializeApp(context.applicationContext)
+      }
       FirebaseFirestore.getInstance()
     } catch (e: Exception) {
       null

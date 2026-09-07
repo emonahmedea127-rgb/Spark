@@ -26,45 +26,17 @@ class SocivaRepository(
   init {
     firestoreService.startSync()
     scope.launch {
-      // Check if seeded
-      val existingUsers = dao.getAllUsers().first()
-      if (existingUsers.isEmpty()) {
-        seedDatabase()
-      } else {
-        val existingMembers = dao.getConversationMembers("conv_sarah")
-        if (existingMembers.isEmpty()) {
-          dao.insertConversationMembers(SeedData.conversationMembers)
-        }
-        val existingPostReactions = dao.countReactionsForPost("post_1")
-        if (existingPostReactions == 0) {
-          dao.insertPostReactions(SeedData.postReactions)
-        }
-        val existingViews = dao.getTotalProfileViewsCount("user_me").first()
-        if (existingViews == 0) {
-          dao.insertProfileViews(SeedData.profileViews)
-        }
-        val existingPostViews = dao.getTotalViewsForPost("post_2").first()
-        if (existingPostViews == 0) {
-          dao.insertPostViews(SeedData.postViews)
-        }
-      }
-      // Ensure current user settings are seeded if missing
-      val existingSettings = dao.getUserSettingsSync("user_me")
-      if (existingSettings == null) {
-        dao.insertOrUpdateUserSettings(
-          UserSettingsEntity(
-            userId = "user_me",
-            twoFactorEnabled = false,
-            twoFactorMethod = "AUTHENTICATOR",
-            profileVisibility = "Public",
-            darkTheme = false,
-            dataSaver = false,
-            pushNotifications = true,
-            inAppSounds = true,
-            language = "English",
-            profileViewHistoryEnabled = true
-          )
-        )
+      try {
+        // Purge any legacy demo data from Room so only real Firebase users appear
+        dao.deleteDemoUser()
+        dao.deleteDemoFriendships()
+        dao.deleteDemoFollows()
+        dao.deleteDemoFriendRequests()
+        dao.deleteDemoProfileViews()
+        dao.deleteDemoPostViews()
+        dao.deleteDemoUserSettings()
+      } catch (e: Exception) {
+        // Safe catch
       }
     }
   }
@@ -113,13 +85,13 @@ class SocivaRepository(
     list.map { it.toDomain() }
   }
 
-  fun getFriends(userId: String = "user_me"): Flow<List<User>> =
+  fun getFriends(userId: String): Flow<List<User>> =
     dao.getFriendIdsForUser(userId).map { ids ->
       val all = dao.getAllUsers().first()
       all.filter { ids.contains(it.id) }.map { it.toDomain().copy(isFriend = true) }
     }
 
-  val friends: Flow<List<User>> = getFriends("user_me")
+  val friends: Flow<List<User>> = getFriends(com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: "")
 
   fun getUser(id: String): Flow<User?> = dao.getUserById(id).map { it?.toDomain() }
 
@@ -485,7 +457,7 @@ class SocivaRepository(
     )
   }
 
-  suspend fun followUser(followerId: String = "user_me", targetUserId: String) {
+  suspend fun followUser(followerId: String, targetUserId: String) {
     if (followerId == targetUserId) return
     if (dao.isFollowing(followerId, targetUserId)) return
     dao.insertFollow(
@@ -500,6 +472,7 @@ class SocivaRepository(
     val targetUser = dao.getUserById(targetUserId).first()
     val newFollowing = dao.getFollowingCount(followerId)
     val newFollowers = dao.getFollowersCount(targetUserId)
+    val currentAuthUid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: ""
     if (followerUser != null) {
       dao.updateUser(followerUser.copy(followingCount = newFollowing))
     }
@@ -507,18 +480,19 @@ class SocivaRepository(
       dao.updateUser(
         targetUser.copy(
           followersCount = newFollowers,
-          isFollowing = if (followerId == "user_me") true else targetUser.isFollowing
+          isFollowing = if (followerId == currentAuthUid) true else targetUser.isFollowing
         )
       )
     }
   }
 
-  suspend fun unfollowUser(followerId: String = "user_me", targetUserId: String) {
+  suspend fun unfollowUser(followerId: String, targetUserId: String) {
     dao.deleteFollow(followerId, targetUserId)
     val followerUser = dao.getUserById(followerId).first()
     val targetUser = dao.getUserById(targetUserId).first()
     val newFollowing = dao.getFollowingCount(followerId)
     val newFollowers = dao.getFollowersCount(targetUserId)
+    val currentAuthUid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: ""
     if (followerUser != null) {
       dao.updateUser(followerUser.copy(followingCount = newFollowing))
     }
@@ -526,18 +500,19 @@ class SocivaRepository(
       dao.updateUser(
         targetUser.copy(
           followersCount = newFollowers,
-          isFollowing = if (followerId == "user_me") false else targetUser.isFollowing
+          isFollowing = if (followerId == currentAuthUid) false else targetUser.isFollowing
         )
       )
     }
   }
 
-  suspend fun toggleFollow(userId: String) {
-    val isFol = dao.isFollowing("user_me", userId)
+  suspend fun toggleFollow(followerId: String, targetUserId: String) {
+    if (followerId == targetUserId) return
+    val isFol = dao.isFollowing(followerId, targetUserId)
     if (isFol) {
-      unfollowUser("user_me", userId)
+      unfollowUser(followerId, targetUserId)
     } else {
-      followUser("user_me", userId)
+      followUser(followerId, targetUserId)
     }
   }
 
@@ -547,11 +522,12 @@ class SocivaRepository(
     val userBEntity = dao.getUserById(userB).first()
     val countA = dao.getFriendsCount(userA)
     val countB = dao.getFriendsCount(userB)
+    val currentAuthUid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: ""
     if (userAEntity != null) {
       dao.updateUser(
         userAEntity.copy(
           friendsCount = countA,
-          isFriend = if (userB == "user_me") false else userAEntity.isFriend
+          isFriend = if (userB == currentAuthUid) false else userAEntity.isFriend
         )
       )
     }
@@ -559,18 +535,19 @@ class SocivaRepository(
       dao.updateUser(
         userBEntity.copy(
           friendsCount = countB,
-          isFriend = if (userA == "user_me") false else userBEntity.isFriend
+          isFriend = if (userA == currentAuthUid) false else userBEntity.isFriend
         )
       )
     }
   }
 
-  suspend fun toggleFriend(userId: String) {
-    val isFr = dao.hasFriendship("user_me", userId)
+  suspend fun toggleFriend(currentUserId: String, targetUserId: String) {
+    if (currentUserId == targetUserId) return
+    val isFr = dao.hasFriendship(currentUserId, targetUserId)
     if (isFr) {
-      removeFriend("user_me", userId)
+      removeFriend(currentUserId, targetUserId)
     } else {
-      sendFriendRequest("user_me", userId)
+      sendFriendRequest(currentUserId, targetUserId)
     }
   }
 
@@ -582,6 +559,7 @@ class SocivaRepository(
     dao.updateUserAvatarInStories(userId, newAvatarUrl)
     dao.updateCreatorAvatarInReels(userId, newAvatarUrl)
     dao.updateParticipantAvatarInConversations(userId, newAvatarUrl)
+    firestoreService.updateProfilePhotoUrl(userId, newAvatarUrl)
     val user = dao.getUserById(userId).first()
     if (user != null) {
       firestoreService.syncUserProfile(user.copy(avatarUrl = newAvatarUrl))
@@ -637,6 +615,7 @@ class SocivaRepository(
   suspend fun updateCoverPhoto(userId: String, newCoverUrl: String) {
     val now = System.currentTimeMillis()
     dao.updateUserCover(userId, newCoverUrl, now)
+    firestoreService.updateCoverPhotoUrl(userId, newCoverUrl)
     val user = dao.getUserById(userId).first()
     if (user != null) {
       firestoreService.syncUserProfile(user.copy(coverUrl = newCoverUrl))
@@ -708,8 +687,9 @@ class SocivaRepository(
         .sortedByDescending { it.value }
         .map { it.key.emoji }
 
-      // Check user_me reaction from post_reactions if present
-      val myPostReaction = postReactions.find { it.userId == "user_me" }?.let { r ->
+      // Check current authenticated user reaction from post_reactions if present
+      val currentAuthUid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: ""
+      val myPostReaction = (if (currentAuthUid.isNotBlank()) postReactions.find { it.userId == currentAuthUid } else null)?.let { r ->
         try { ReactionType.valueOf(r.reactionType) } catch (e: Exception) { null }
       } ?: postEntity.myReaction?.let {
         try { ReactionType.valueOf(it) } catch (e: Exception) { null }
@@ -920,16 +900,19 @@ class SocivaRepository(
     dao.updatePostContent(postId, newContent)
   }
 
-  suspend fun setReaction(postId: String, reaction: ReactionType?, userId: String = "user_me") {
+  suspend fun setReaction(postId: String, reaction: ReactionType?, userId: String = "") {
+    val effectiveUserId = userId.ifBlank {
+      com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: ""
+    }
     val post = dao.getPostById(postId).first() ?: return
-    val existingReactionEntity = dao.findPostReaction(postId, userId)
+    val existingReactionEntity = dao.findPostReaction(postId, effectiveUserId)
     val hadPreviousReaction = existingReactionEntity != null || post.myReaction != null
     val isSameReaction = (existingReactionEntity?.reactionType ?: post.myReaction) == reaction?.name
 
     val now = System.currentTimeMillis()
     if (isSameReaction) {
       // Remove reaction
-      dao.deletePostReaction(postId, userId)
+      dao.deletePostReaction(postId, effectiveUserId)
       val newCount = (post.likesCount - 1).coerceAtLeast(0)
       dao.updatePost(
         post.copy(
@@ -942,7 +925,7 @@ class SocivaRepository(
       val reactionEntity = PostReactionEntity(
         id = existingReactionEntity?.id ?: ("pr_" + UUID.randomUUID().toString().take(8)),
         postId = postId,
-        userId = userId,
+        userId = effectiveUserId,
         reactionType = reaction.name,
         createdAt = now
       )
@@ -957,8 +940,8 @@ class SocivaRepository(
       )
 
       // Send notification to post author if not self
-      if (post.authorId != userId) {
-        val userActor = dao.getUserById(userId).first()
+      if (post.authorId != effectiveUserId && effectiveUserId.isNotBlank()) {
+        val userActor = dao.getUserById(effectiveUserId).first()
         dao.insertNotification(
           NotificationEntity(
             id = "notif_" + UUID.randomUUID().toString().take(8),
@@ -1433,16 +1416,17 @@ class SocivaRepository(
       list.map { it.toDomain() }
     }
 
-  val conversations: Flow<List<Conversation>> = getConversations("user_me")
+  val conversations: Flow<List<Conversation>> = getConversations(com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: "")
 
   fun getConversation(convId: String, currentUserId: String): Flow<Conversation?> =
     getConversations(currentUserId).map { list ->
       list.find { it.id == convId }
     }
 
-  fun getMessages(convId: String, currentUserId: String = "user_me"): Flow<List<Message>> =
+  fun getMessages(convId: String, currentUserId: String = ""): Flow<List<Message>> =
     dao.getMessagesForConversation(convId).map { list ->
-      list.map { it.toDomain(currentUserId) }
+      val effectiveUid = currentUserId.ifBlank { com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: "" }
+      list.map { it.toDomain(effectiveUid) }
     }
 
   suspend fun getOrCreateConversation(userAId: String, userBId: String): String {
@@ -1475,19 +1459,22 @@ class SocivaRepository(
 
   suspend fun sendMessage(
     convId: String,
-    senderId: String = "user_me",
+    senderId: String = "",
     text: String,
     mediaUrl: String? = null,
     messageType: String = "TEXT"
   ) {
+    val effectiveSenderId = senderId.ifBlank {
+      com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: ""
+    }
     val now = System.currentTimeMillis()
-    val otherMember = dao.getOtherMember(convId, senderId)
+    val otherMember = dao.getOtherMember(convId, effectiveSenderId)
     val receiverId = otherMember?.userId ?: ""
 
     val msg = MessageEntity(
       id = "m_" + UUID.randomUUID().toString().take(8),
       conversationId = convId,
-      senderId = senderId,
+      senderId = effectiveSenderId,
       receiverId = receiverId,
       messageType = messageType,
       text = text,
@@ -1551,10 +1538,10 @@ class SocivaRepository(
     dao.getAllUsersExcept(currentUserId).map { list -> list.map { it.toDomain() } }
 
   // --- Notifications ---
-  fun getNotifications(recipientId: String = "user_me"): Flow<List<NotificationItem>> =
+  fun getNotifications(recipientId: String): Flow<List<NotificationItem>> =
     dao.getNotificationsForRecipient(recipientId).map { list -> list.map { it.toDomain() } }
 
-  val notifications: Flow<List<NotificationItem>> = getNotifications("user_me")
+  val notifications: Flow<List<NotificationItem>> = getNotifications(com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: "")
 
   suspend fun markNotificationRead(id: String) {
     dao.markNotificationAsRead(id)
@@ -1565,16 +1552,16 @@ class SocivaRepository(
   }
 
   // --- Friend Requests & Relationships ---
-  fun getIncomingFriendRequests(receiverId: String = "user_me"): Flow<List<FriendRequestItem>> =
+  fun getIncomingFriendRequests(receiverId: String): Flow<List<FriendRequestItem>> =
     dao.getIncomingFriendRequests(receiverId).map { list -> list.map { it.toDomain() } }
 
-  fun getSentFriendRequests(senderId: String = "user_me"): Flow<List<FriendRequestItem>> =
+  fun getSentFriendRequests(senderId: String): Flow<List<FriendRequestItem>> =
     dao.getSentFriendRequests(senderId).map { list -> list.map { it.toDomain() } }
 
-  fun getFriendRequests(userId: String = "user_me"): Flow<List<FriendRequestItem>> =
+  fun getFriendRequests(userId: String): Flow<List<FriendRequestItem>> =
     getIncomingFriendRequests(userId)
 
-  val friendRequests: Flow<List<FriendRequestItem>> = getIncomingFriendRequests("user_me")
+  val friendRequests: Flow<List<FriendRequestItem>> = getIncomingFriendRequests(com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: "")
 
   fun getFriendStatusFlow(currentUserId: String, targetUserId: String): Flow<FriendStatus> {
     if (currentUserId == targetUserId) {
@@ -1653,13 +1640,16 @@ class SocivaRepository(
     return true
   }
 
-  suspend fun acceptFriendRequest(requestId: String, currentUserId: String = "user_me"): Boolean {
+  suspend fun acceptFriendRequest(requestId: String, currentUserId: String = ""): Boolean {
     val request = dao.getFriendRequestById(requestId) ?: return false
     if (request.status != "pending") return false
 
     val senderId = request.senderId
     val receiverId = request.receiverId
     val now = System.currentTimeMillis()
+    val authUid = currentUserId.ifBlank {
+      com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: ""
+    }
 
     // 1. Remove pending friend request
     dao.deleteFriendRequest(requestId)
@@ -1694,7 +1684,7 @@ class SocivaRepository(
       dao.updateUser(
         senderUser.copy(
           friendsCount = senderFriendsCount,
-          isFriend = if (receiverId == "user_me") true else senderUser.isFriend
+          isFriend = if (receiverId == authUid) true else senderUser.isFriend
         )
       )
     }
@@ -1702,7 +1692,7 @@ class SocivaRepository(
       dao.updateUser(
         receiverUser.copy(
           friendsCount = receiverFriendsCount,
-          isFriend = if (senderId == "user_me") true else receiverUser.isFriend
+          isFriend = if (senderId == authUid) true else receiverUser.isFriend
         )
       )
     }
@@ -2210,36 +2200,36 @@ class SocivaRepository(
       entity?.toDomain() ?: UserSettings(userId = userId)
     }
 
-  suspend fun updateDarkTheme(userId: String = "user_me", enabled: Boolean) {
+  suspend fun updateDarkTheme(userId: String, enabled: Boolean) {
     dao.updateDarkTheme(userId, enabled)
   }
 
-  suspend fun updateDataSaver(userId: String = "user_me", enabled: Boolean) {
+  suspend fun updateDataSaver(userId: String, enabled: Boolean) {
     dao.updateDataSaver(userId, enabled)
   }
 
-  suspend fun updatePushNotifications(userId: String = "user_me", enabled: Boolean) {
+  suspend fun updatePushNotifications(userId: String, enabled: Boolean) {
     dao.updatePushNotifications(userId, enabled)
   }
 
-  suspend fun updateInAppSounds(userId: String = "user_me", enabled: Boolean) {
+  suspend fun updateInAppSounds(userId: String, enabled: Boolean) {
     dao.updateInAppSounds(userId, enabled)
   }
 
-  suspend fun updateProfileVisibility(userId: String = "user_me", visibility: String) {
+  suspend fun updateProfileVisibility(userId: String, visibility: String) {
     dao.updateProfileVisibility(userId, visibility)
   }
 
-  suspend fun updateTwoFactor(userId: String = "user_me", enabled: Boolean, method: String = "AUTHENTICATOR") {
+  suspend fun updateTwoFactor(userId: String, enabled: Boolean, method: String = "AUTHENTICATOR") {
     dao.updateTwoFactor(userId, enabled, method)
   }
 
-  suspend fun updatePassword(userId: String = "user_me") {
+  suspend fun updatePassword(userId: String) {
     dao.updatePasswordLastUpdated(userId)
   }
 
   // --- Blocking System ---
-  fun getBlockedUsers(blockerId: String = "user_me"): Flow<List<BlockedUser>> =
+  fun getBlockedUsers(blockerId: String): Flow<List<BlockedUser>> =
     combine(dao.getBlockedUsersForUser(blockerId), dao.getAllUsers()) { blockedEntities, users ->
       val userMap = users.associateBy { it.id }
       blockedEntities.mapNotNull { entity ->
@@ -2254,13 +2244,13 @@ class SocivaRepository(
       }
     }
 
-  fun isUserBlockedFlow(currentUserId: String = "user_me", targetUserId: String): Flow<Boolean> =
+  fun isUserBlockedFlow(currentUserId: String, targetUserId: String): Flow<Boolean> =
     dao.isBlockedEitherWayFlow(currentUserId, targetUserId)
 
-  suspend fun isUserBlocked(currentUserId: String = "user_me", targetUserId: String): Boolean =
+  suspend fun isUserBlocked(currentUserId: String, targetUserId: String): Boolean =
     dao.isBlockedEitherWay(currentUserId, targetUserId)
 
-  suspend fun blockUser(blockerId: String = "user_me", blockedId: String): Boolean {
+  suspend fun blockUser(blockerId: String, blockedId: String): Boolean {
     if (blockerId == blockedId) return false
     val now = System.currentTimeMillis()
 
@@ -2312,7 +2302,7 @@ class SocivaRepository(
     return true
   }
 
-  suspend fun unblockUser(blockerId: String = "user_me", blockedId: String): Boolean {
+  suspend fun unblockUser(blockerId: String, blockedId: String): Boolean {
     dao.deleteBlock(blockerId, blockedId)
     return true
   }
@@ -2320,14 +2310,14 @@ class SocivaRepository(
   // --- Profile Views ---
 
   suspend fun recordProfileVisit(
-    viewerUserId: String = "user_me",
+    viewerUserId: String,
     viewedUserId: String,
     originatingPostId: String? = null
   ) {
     try {
       if (viewerUserId.isBlank() || viewedUserId.isBlank()) return
       // Requirement 3: Do not track self-views
-      if (viewerUserId == viewedUserId || (viewerUserId == "user_me" && viewedUserId == "user_me")) return
+      if (viewerUserId == viewedUserId) return
 
       // If this visit came from clicking a post author, mark the post view as having generated a profile visit
       if (!originatingPostId.isNullOrBlank()) {
@@ -2473,7 +2463,7 @@ class SocivaRepository(
     }
   }
 
-  suspend fun updateProfileViewHistorySetting(userId: String = "user_me", enabled: Boolean) {
+  suspend fun updateProfileViewHistorySetting(userId: String, enabled: Boolean) {
     dao.updateProfileViewHistoryEnabled(userId, enabled)
   }
 
@@ -3240,7 +3230,7 @@ private fun ConversationWithParticipant.toDomain() = Conversation(
   lastActiveAt = lastActiveAt
 )
 
-private fun MessageEntity.toDomain(currentUserId: String = "user_me") = Message(
+private fun MessageEntity.toDomain(currentUserId: String = "") = Message(
   id = id,
   conversationId = conversationId,
   senderId = senderId,
@@ -3251,7 +3241,7 @@ private fun MessageEntity.toDomain(currentUserId: String = "user_me") = Message(
   timestamp = timestamp,
   isSeen = isSeen,
   isDeleted = isDeleted,
-  isMine = (senderId == currentUserId)
+  isMine = (senderId == currentUserId || (currentUserId.isBlank() && senderId == (com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: "")))
 )
 
 private fun NotificationEntity.toDomain() = NotificationItem(

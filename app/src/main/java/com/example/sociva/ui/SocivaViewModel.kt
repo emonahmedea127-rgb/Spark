@@ -54,6 +54,7 @@ class SocivaViewModel(application: Application) : AndroidViewModel(application) 
   private val firestoreService = repository.firestoreService
   private val mediaService = MediaService(application)
   private val authRepository: AuthRepository = FirebaseAuthRepository(application, database.socivaDao())
+  val mediaRepository: MediaRepository = DefaultMediaRepository(application, database.socivaDao(), firestoreService, mediaService)
 
   val authState: StateFlow<AuthState> = authRepository.authState
 
@@ -1592,7 +1593,9 @@ class SocivaViewModel(application: Application) : AndroidViewModel(application) 
   }
 
   fun navigateToMyProfile() {
-    _activeProfileUserId.value = _currentUserId.value
+    val authUid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: ""
+    val effectiveUid = authUid.ifBlank { _currentUserId.value }
+    _activeProfileUserId.value = effectiveUid
     _activeScreen.value = SocivaScreen.PROFILE
   }
 
@@ -1725,14 +1728,13 @@ class SocivaViewModel(application: Application) : AndroidViewModel(application) 
     val currentUserId = currentUser.value?.id ?: _currentUserId.value
     val task: suspend () -> Unit = {
       _uploadState.value = UploadState.Validating()
-      delay(120)
+      delay(80)
       _uploadState.value = UploadState.Compressing()
-      delay(150)
+      delay(100)
 
-      val result = mediaService.uploadImage(
-        bitmap = bitmap,
+      val result = mediaRepository.uploadProfilePhoto(
         userId = currentUserId,
-        type = MediaType.PROFILE_PICTURE,
+        bitmap = bitmap,
         onProgress = { progress ->
           _uploadState.value = UploadState.Uploading(progress)
         }
@@ -1742,13 +1744,13 @@ class SocivaViewModel(application: Application) : AndroidViewModel(application) 
         onSuccess = { photoUrl ->
           repository.updateProfilePicture(currentUserId, photoUrl)
           _uploadState.value = UploadState.Success(photoUrl, MediaType.PROFILE_PICTURE)
-          showToast("Profile picture updated successfully! ✨")
+          showToast("Profile picture updated and saved to Cloud Storage! ✨")
           delay(1200)
           _uploadState.value = UploadState.Idle
         },
         onFailure = { error ->
           _uploadState.value = UploadState.Error(
-            message = error.localizedMessage ?: "Failed to upload profile picture. Please check network or file size.",
+            message = error.localizedMessage ?: "Failed to upload profile picture to Cloud Storage. Please check network or file size.",
             canRetry = true
           )
         }
@@ -1763,14 +1765,13 @@ class SocivaViewModel(application: Application) : AndroidViewModel(application) 
     val currentUserId = currentUser.value?.id ?: _currentUserId.value
     val task: suspend () -> Unit = {
       _uploadState.value = UploadState.Validating()
-      delay(120)
+      delay(80)
       _uploadState.value = UploadState.Compressing()
-      delay(150)
+      delay(100)
 
-      val result = mediaService.uploadImage(
-        bitmap = bitmap,
+      val result = mediaRepository.uploadCoverPhoto(
         userId = currentUserId,
-        type = MediaType.COVER_PHOTO,
+        bitmap = bitmap,
         onProgress = { progress ->
           _uploadState.value = UploadState.Uploading(progress)
         }
@@ -1780,13 +1781,13 @@ class SocivaViewModel(application: Application) : AndroidViewModel(application) 
         onSuccess = { photoUrl ->
           repository.updateCoverPhoto(currentUserId, photoUrl)
           _uploadState.value = UploadState.Success(photoUrl, MediaType.COVER_PHOTO)
-          showToast("Cover photo updated successfully! 🌄")
+          showToast("Cover photo updated and saved to Cloud Storage! 🌄")
           delay(1200)
           _uploadState.value = UploadState.Idle
         },
         onFailure = { error ->
           _uploadState.value = UploadState.Error(
-            message = error.localizedMessage ?: "Failed to upload cover photo. Please try again.",
+            message = error.localizedMessage ?: "Failed to upload cover photo to Cloud Storage. Please try again.",
             canRetry = true
           )
         }
@@ -1795,6 +1796,98 @@ class SocivaViewModel(application: Application) : AndroidViewModel(application) 
 
     lastUploadTask = task
     viewModelScope.launch { task() }
+  }
+
+  fun uploadAndSetProfilePictureFromUri(uri: android.net.Uri) {
+    val currentUserId = currentUser.value?.id ?: _currentUserId.value
+    val task: suspend () -> Unit = {
+      _uploadState.value = UploadState.Validating()
+      val validation = mediaRepository.validateMedia(uri)
+      if (!validation.isValid) {
+        _uploadState.value = UploadState.Error(validation.errorMessage ?: "Invalid media selected", canRetry = false)
+      } else {
+        _uploadState.value = UploadState.Compressing()
+        delay(80)
+
+        val result = mediaRepository.uploadProfilePhotoFromUri(
+          userId = currentUserId,
+          uri = uri,
+          onProgress = { progress ->
+            _uploadState.value = UploadState.Uploading(progress)
+          }
+        )
+
+        result.fold(
+          onSuccess = { photoUrl ->
+            repository.updateProfilePicture(currentUserId, photoUrl)
+            _uploadState.value = UploadState.Success(photoUrl, MediaType.PROFILE_PICTURE)
+            showToast("Profile picture updated and saved to Cloud Storage! ✨")
+            delay(1200)
+            _uploadState.value = UploadState.Idle
+          },
+          onFailure = { error ->
+            _uploadState.value = UploadState.Error(
+              message = error.localizedMessage ?: "Failed to upload profile picture. Please check your connection.",
+              canRetry = true
+            )
+          }
+        )
+      }
+    }
+
+    lastUploadTask = task
+    viewModelScope.launch { task() }
+  }
+
+  fun uploadAndSetCoverPhotoFromUri(uri: android.net.Uri) {
+    val currentUserId = currentUser.value?.id ?: _currentUserId.value
+    val task: suspend () -> Unit = {
+      _uploadState.value = UploadState.Validating()
+      val validation = mediaRepository.validateMedia(uri)
+      if (!validation.isValid) {
+        _uploadState.value = UploadState.Error(validation.errorMessage ?: "Invalid media selected", canRetry = false)
+      } else {
+        _uploadState.value = UploadState.Compressing()
+        delay(80)
+
+        val result = mediaRepository.uploadCoverPhotoFromUri(
+          userId = currentUserId,
+          uri = uri,
+          onProgress = { progress ->
+            _uploadState.value = UploadState.Uploading(progress)
+          }
+        )
+
+        result.fold(
+          onSuccess = { photoUrl ->
+            repository.updateCoverPhoto(currentUserId, photoUrl)
+            _uploadState.value = UploadState.Success(photoUrl, MediaType.COVER_PHOTO)
+            showToast("Cover photo updated and saved to Cloud Storage! 🌄")
+            delay(1200)
+            _uploadState.value = UploadState.Idle
+          },
+          onFailure = { error ->
+            _uploadState.value = UploadState.Error(
+              message = error.localizedMessage ?: "Failed to upload cover photo. Please check your connection.",
+              canRetry = true
+            )
+          }
+        )
+      }
+    }
+
+    lastUploadTask = task
+    viewModelScope.launch { task() }
+  }
+
+  suspend fun uploadPostMedia(postId: String, uri: android.net.Uri, onProgress: (Float) -> Unit = {}): Result<com.example.sociva.data.service.ProcessedMedia> {
+    val currentUserId = currentUser.value?.id ?: _currentUserId.value
+    return mediaRepository.uploadPostMedia(currentUserId, postId, uri, onProgress)
+  }
+
+  suspend fun uploadStoryMedia(storyId: String, uri: android.net.Uri, onProgress: (Float) -> Unit = {}): Result<com.example.sociva.data.service.ProcessedMedia> {
+    val currentUserId = currentUser.value?.id ?: _currentUserId.value
+    return mediaRepository.uploadStoryMedia(currentUserId, storyId, uri, onProgress)
   }
 
   fun removeProfilePicture(userId: String) {

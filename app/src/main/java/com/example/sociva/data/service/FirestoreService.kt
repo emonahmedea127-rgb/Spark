@@ -229,6 +229,44 @@ class FirestoreService(
   }
 
   /**
+   * Updates profilePhotoUrl and avatarUrl directly in Firestore users/{uid} document.
+   */
+  suspend fun updateProfilePhotoUrl(uid: String, photoUrl: String): Boolean = kotlinx.coroutines.withContext(Dispatchers.IO) {
+    val db = firestore ?: return@withContext false
+    try {
+      val updates = hashMapOf<String, Any>(
+        "profilePhotoUrl" to photoUrl,
+        "avatarUrl" to photoUrl,
+        "updatedAt" to System.currentTimeMillis()
+      )
+      db.collection("users").document(uid).set(updates, SetOptions.merge()).awaitResult()
+      true
+    } catch (e: Exception) {
+      Log.w(TAG, "Failed to update profilePhotoUrl in Firestore: ${e.message}")
+      false
+    }
+  }
+
+  /**
+   * Updates coverPhotoUrl and coverUrl directly in Firestore users/{uid} document.
+   */
+  suspend fun updateCoverPhotoUrl(uid: String, coverUrl: String): Boolean = kotlinx.coroutines.withContext(Dispatchers.IO) {
+    val db = firestore ?: return@withContext false
+    try {
+      val updates = hashMapOf<String, Any>(
+        "coverPhotoUrl" to coverUrl,
+        "coverUrl" to coverUrl,
+        "updatedAt" to System.currentTimeMillis()
+      )
+      db.collection("users").document(uid).set(updates, SetOptions.merge()).awaitResult()
+      true
+    } catch (e: Exception) {
+      Log.w(TAG, "Failed to update coverPhotoUrl in Firestore: ${e.message}")
+      false
+    }
+  }
+
+  /**
    * Fetches the user profile directly from Firestore and caches into Room.
    */
   suspend fun fetchUserProfile(uid: String): UserEntity? {

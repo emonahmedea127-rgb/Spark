@@ -126,7 +126,7 @@ fun MenuScreen(
             .fillMaxWidth()
             .clickable {
               if (activeIdentity.type == IdentityType.PERSONAL) {
-                viewModel.navigateToProfile("user_me")
+                viewModel.navigateToMyProfile()
               } else if (activeIdentity.type == IdentityType.PAGE) {
                 viewModel.openPage(activeIdentity.id)
               } else {

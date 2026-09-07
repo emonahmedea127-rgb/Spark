@@ -20,6 +20,30 @@ interface SocivaDao {
   @Query("SELECT * FROM users WHERE isFriend = 1")
   fun getFriends(): Flow<List<UserEntity>>
 
+  @Query("DELETE FROM users WHERE id = :userId")
+  suspend fun deleteUserById(userId: String)
+
+  @Query("DELETE FROM users WHERE id = 'user_me'")
+  suspend fun deleteDemoUser()
+
+  @Query("DELETE FROM friendships WHERE userId = 'user_me' OR friendId = 'user_me'")
+  suspend fun deleteDemoFriendships()
+
+  @Query("DELETE FROM follows WHERE followerId = 'user_me' OR followingId = 'user_me'")
+  suspend fun deleteDemoFollows()
+
+  @Query("DELETE FROM friend_requests WHERE senderId = 'user_me' OR receiverId = 'user_me'")
+  suspend fun deleteDemoFriendRequests()
+
+  @Query("DELETE FROM profile_views WHERE viewerUserId = 'user_me' OR viewedUserId = 'user_me' OR id LIKE 'pv_seed_%'")
+  suspend fun deleteDemoProfileViews()
+
+  @Query("DELETE FROM post_views WHERE viewerUserId = 'user_me' OR id LIKE 'pv_post%'")
+  suspend fun deleteDemoPostViews()
+
+  @Query("DELETE FROM user_settings WHERE userId = 'user_me'")
+  suspend fun deleteDemoUserSettings()
+
   @Insert(onConflict = OnConflictStrategy.REPLACE)
   suspend fun insertUsers(users: List<UserEntity>)
 
@@ -334,7 +358,7 @@ interface SocivaDao {
   @Query("SELECT * FROM notifications ORDER BY timestamp DESC")
   fun getAllNotifications(): Flow<List<NotificationEntity>>
 
-  @Query("SELECT * FROM notifications WHERE recipientId = :recipientId OR recipientId = 'user_me' ORDER BY timestamp DESC")
+  @Query("SELECT * FROM notifications WHERE recipientId = :recipientId ORDER BY timestamp DESC")
   fun getNotificationsForRecipient(recipientId: String): Flow<List<NotificationEntity>>
 
   @Insert(onConflict = OnConflictStrategy.REPLACE)

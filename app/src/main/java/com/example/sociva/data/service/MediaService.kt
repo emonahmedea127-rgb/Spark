@@ -5,8 +5,10 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
 import android.net.Uri
+import android.util.Log
 import com.example.BuildConfig
 import com.google.firebase.storage.FirebaseStorage
+import com.google.firebase.storage.StorageException
 import com.google.firebase.storage.StorageMetadata
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -55,8 +57,20 @@ data class ValidationResult(
 )
 
 interface MediaStorageAdapter {
-  suspend fun store(fileName: String, bytes: ByteArray, mimeType: String): Result<String>
-  suspend fun storeStream(fileName: String, inputStream: InputStream, mimeType: String): Result<String>
+  suspend fun store(
+    storagePath: String,
+    bytes: ByteArray,
+    mimeType: String,
+    onProgress: (Float) -> Unit = {}
+  ): Result<String>
+
+  suspend fun storeStream(
+    storagePath: String,
+    inputStream: InputStream,
+    mimeType: String,
+    onProgress: (Float) -> Unit = {}
+  ): Result<String>
+
   suspend fun delete(fileUrl: String): Boolean
   fun getUrl(mediaId: String): String
 }
@@ -80,13 +94,20 @@ class SocivaStorageAdapter(private val context: Context) : MediaStorageAdapter {
       return dir
     }
 
-  override suspend fun store(fileName: String, bytes: ByteArray, mimeType: String): Result<String> = withContext(Dispatchers.IO) {
+  override suspend fun store(
+    storagePath: String,
+    bytes: ByteArray,
+    mimeType: String,
+    onProgress: (Float) -> Unit
+  ): Result<String> = withContext(Dispatchers.IO) {
     try {
-      val targetFile = File(mediaDir, fileName)
+      val targetFile = File(mediaDir, storagePath)
+      targetFile.parentFile?.mkdirs()
       FileOutputStream(targetFile).use { fos ->
         fos.write(bytes)
         fos.flush()
       }
+      onProgress(1.0f)
       val localUri = targetFile.toURI().toString()
       Result.success(localUri)
     } catch (e: Exception) {
@@ -94,13 +115,20 @@ class SocivaStorageAdapter(private val context: Context) : MediaStorageAdapter {
     }
   }
 
-  override suspend fun storeStream(fileName: String, inputStream: InputStream, mimeType: String): Result<String> = withContext(Dispatchers.IO) {
+  override suspend fun storeStream(
+    storagePath: String,
+    inputStream: InputStream,
+    mimeType: String,
+    onProgress: (Float) -> Unit
+  ): Result<String> = withContext(Dispatchers.IO) {
     try {
-      val targetFile = File(mediaDir, fileName)
+      val targetFile = File(mediaDir, storagePath)
+      targetFile.parentFile?.mkdirs()
       FileOutputStream(targetFile).use { fos ->
         inputStream.copyTo(fos)
         fos.flush()
       }
+      onProgress(1.0f)
       val localUri = targetFile.toURI().toString()
       Result.success(localUri)
     } catch (e: Exception) {
@@ -134,55 +162,95 @@ class SocivaStorageAdapter(private val context: Context) : MediaStorageAdapter {
 
 /**
  * Storage adapter that uploads photos and videos to Firebase Cloud Storage,
- * with automatic fallback to private app storage when offline or unauthenticated.
+ * enforcing authenticated UID hierarchy and reporting upload progress.
  */
 class FirebaseStorageAdapter(
   private val context: Context,
   private val fallbackAdapter: MediaStorageAdapter = SocivaStorageAdapter(context)
 ) : MediaStorageAdapter {
 
+  private val TAG = "FirebaseStorageAdapter"
+
   private val storageRef by lazy {
     try {
       FirebaseStorage.getInstance().reference
     } catch (e: Exception) {
+      Log.w(TAG, "FirebaseStorage initialization failed or not configured: ${e.message}")
       null
     }
   }
 
-  override suspend fun store(fileName: String, bytes: ByteArray, mimeType: String): Result<String> = withContext(Dispatchers.IO) {
+  override suspend fun store(
+    storagePath: String,
+    bytes: ByteArray,
+    mimeType: String,
+    onProgress: (Float) -> Unit
+  ): Result<String> = withContext(Dispatchers.IO) {
     val rootRef = storageRef
     if (rootRef != null) {
       try {
-        val fileRef = rootRef.child("uploads/$fileName")
+        val fileRef = rootRef.child(storagePath)
         val metadata = StorageMetadata.Builder()
           .setContentType(mimeType)
           .build()
-        fileRef.putBytes(bytes, metadata).awaitResult()
+
+        val uploadTask = fileRef.putBytes(bytes, metadata)
+        uploadTask.addOnProgressListener { snapshot ->
+          val total = snapshot.totalByteCount
+          if (total > 0) {
+            val progress = snapshot.bytesTransferred.toFloat() / total.toFloat()
+            onProgress(progress.coerceIn(0f, 1f))
+          }
+        }
+        uploadTask.awaitResult()
         val downloadUri = fileRef.downloadUrl.awaitResult()
         return@withContext Result.success(downloadUri.toString())
+      } catch (e: StorageException) {
+        Log.e(TAG, "StorageException during upload to $storagePath: ${e.message}", e)
+        return@withContext Result.failure(mapStorageException(e))
       } catch (e: Exception) {
-        // Graceful fallback to local adapter ensures uploads never crash or block posting
+        Log.e(TAG, "Exception during upload to $storagePath: ${e.message}", e)
+        return@withContext Result.failure(mapGeneralException(e))
       }
     }
-    fallbackAdapter.store(fileName, bytes, mimeType)
+    // Only fall back to local storage if FirebaseApp is uninitialized
+    fallbackAdapter.store(storagePath, bytes, mimeType, onProgress)
   }
 
-  override suspend fun storeStream(fileName: String, inputStream: InputStream, mimeType: String): Result<String> = withContext(Dispatchers.IO) {
+  override suspend fun storeStream(
+    storagePath: String,
+    inputStream: InputStream,
+    mimeType: String,
+    onProgress: (Float) -> Unit
+  ): Result<String> = withContext(Dispatchers.IO) {
     val rootRef = storageRef
     if (rootRef != null) {
       try {
-        val fileRef = rootRef.child("uploads/$fileName")
+        val fileRef = rootRef.child(storagePath)
         val metadata = StorageMetadata.Builder()
           .setContentType(mimeType)
           .build()
-        fileRef.putStream(inputStream, metadata).awaitResult()
+
+        val uploadTask = fileRef.putStream(inputStream, metadata)
+        uploadTask.addOnProgressListener { snapshot ->
+          val total = snapshot.totalByteCount
+          if (total > 0) {
+            val progress = snapshot.bytesTransferred.toFloat() / total.toFloat()
+            onProgress(progress.coerceIn(0f, 1f))
+          }
+        }
+        uploadTask.awaitResult()
         val downloadUri = fileRef.downloadUrl.awaitResult()
         return@withContext Result.success(downloadUri.toString())
+      } catch (e: StorageException) {
+        Log.e(TAG, "StorageException during stream upload to $storagePath: ${e.message}", e)
+        return@withContext Result.failure(mapStorageException(e))
       } catch (e: Exception) {
-        // Fall back gracefully
+        Log.e(TAG, "Exception during stream upload to $storagePath: ${e.message}", e)
+        return@withContext Result.failure(mapGeneralException(e))
       }
     }
-    fallbackAdapter.storeStream(fileName, inputStream, mimeType)
+    fallbackAdapter.storeStream(storagePath, inputStream, mimeType, onProgress)
   }
 
   override suspend fun delete(fileUrl: String): Boolean = withContext(Dispatchers.IO) {
@@ -191,7 +259,7 @@ class FirebaseStorageAdapter(
         FirebaseStorage.getInstance().getReferenceFromUrl(fileUrl).delete().awaitResult()
         return@withContext true
       } catch (e: Exception) {
-        // Ignore deletion failures
+        Log.w(TAG, "Failed to delete file from Firebase Storage: ${e.message}")
       }
     }
     fallbackAdapter.delete(fileUrl)
@@ -200,11 +268,41 @@ class FirebaseStorageAdapter(
   override fun getUrl(mediaId: String): String {
     return fallbackAdapter.getUrl(mediaId)
   }
+
+  private fun mapStorageException(e: StorageException): Exception {
+    return when (e.errorCode) {
+      StorageException.ERROR_NOT_AUTHORIZED ->
+        SecurityException("Storage permission denied. You can only upload to your own profile or content.")
+      StorageException.ERROR_NOT_AUTHENTICATED ->
+        IllegalStateException("User is not authenticated. Please log in to upload media.")
+      StorageException.ERROR_QUOTA_EXCEEDED ->
+        IllegalStateException("Cloud Storage quota exceeded. Please contact support.")
+      StorageException.ERROR_RETRY_LIMIT_EXCEEDED ->
+        java.io.IOException("Network timed out during media upload. Please check your internet connection and retry.")
+      StorageException.ERROR_OBJECT_NOT_FOUND ->
+        java.io.FileNotFoundException("Target storage file was not found.")
+      StorageException.ERROR_CANCELED ->
+        java.util.concurrent.CancellationException("Upload was cancelled.")
+      else ->
+        Exception(e.localizedMessage ?: "Firebase Cloud Storage upload failed. Please try again.")
+    }
+  }
+
+  private fun mapGeneralException(e: Exception): Exception {
+    val msg = e.localizedMessage?.lowercase(Locale.ROOT) ?: ""
+    return when {
+      e is java.net.UnknownHostException || e is java.net.SocketTimeoutException || msg.contains("network") ->
+        java.io.IOException("No internet connection. Please verify your connection and try again.")
+      msg.contains("not initialized") ->
+        IllegalStateException("Firebase Cloud Storage is currently unavailable.")
+      else -> e
+    }
+  }
 }
 
 class MediaService(
   private val context: Context,
-  private val storageAdapter: MediaStorageAdapter = SocivaStorageAdapter(context)
+  private val storageAdapter: MediaStorageAdapter = FirebaseStorageAdapter(context)
 ) {
 
   companion object {
@@ -315,45 +413,91 @@ class MediaService(
   }
 
   /**
+   * Generates the organized cloud storage path according to Spark requirements:
+   * users/{uid}/profile/avatar/
+   * users/{uid}/profile/cover/
+   * users/{uid}/posts/{postId}/
+   * users/{uid}/stories/{storyId}/
+   */
+  fun generateStoragePath(
+    userId: String,
+    type: MediaType,
+    fileName: String,
+    targetId: String? = null
+  ): String {
+    val cleanUserId = userId.trim().ifBlank { "anonymous" }
+    return when (type) {
+      MediaType.PROFILE_PICTURE -> "users/$cleanUserId/profile/avatar/$fileName"
+      MediaType.COVER_PHOTO -> "users/$cleanUserId/profile/cover/$fileName"
+      MediaType.POST_MEDIA -> {
+        val postId = targetId?.ifBlank { null } ?: "post_${System.currentTimeMillis()}"
+        "users/$cleanUserId/posts/$postId/$fileName"
+      }
+      MediaType.STORY_MEDIA -> {
+        val storyId = targetId?.ifBlank { null } ?: "story_${System.currentTimeMillis()}"
+        "users/$cleanUserId/stories/$storyId/$fileName"
+      }
+    }
+  }
+
+  /**
    * Uploads an edited/cropped bitmap with progress tracking.
    */
   suspend fun uploadImage(
     bitmap: Bitmap,
     userId: String,
     type: MediaType,
+    targetId: String? = null,
     onProgress: (Float) -> Unit
   ): Result<String> = withContext(Dispatchers.IO) {
     try {
-      onProgress(0.20f)
-      delay(50)
-
-      val compressedBytes = compressAndResize(bitmap, type)
-      onProgress(0.50f)
-      delay(50)
-
-      if (compressedBytes.size > MAX_IMAGE_SIZE_BYTES) {
+      if (userId.isBlank()) {
         return@withContext Result.failure(
-          IllegalArgumentException("Optimized image exceeds 15MB limit.")
+          IllegalStateException("User is not authenticated. Please log in to upload images.")
         )
       }
 
-      onProgress(0.75f)
+      onProgress(0.15f)
+      delay(30)
+
+      val compressedBytes = compressAndResize(bitmap, type)
+      onProgress(0.40f)
+      delay(30)
+
+      if (compressedBytes.size > MAX_IMAGE_SIZE_BYTES) {
+        val mb = compressedBytes.size / (1024 * 1024.0)
+        return@withContext Result.failure(
+          IllegalArgumentException("Optimized image size (${"%.1f".format(mb)} MB) exceeds 15 MB limit.")
+        )
+      }
+
       val prefix = when (type) {
         MediaType.PROFILE_PICTURE -> "avatar"
         MediaType.COVER_PHOTO -> "cover"
         MediaType.POST_MEDIA -> "post"
         MediaType.STORY_MEDIA -> "story"
       }
-      val fileName = "${prefix}_${userId}_${System.currentTimeMillis()}_${UUID.randomUUID().toString().take(6)}.jpg"
+      val fileName = "${prefix}_${System.currentTimeMillis()}_${UUID.randomUUID().toString().take(6)}.jpg"
+      val storagePath = generateStoragePath(userId, type, fileName, targetId)
 
-      onProgress(0.90f)
-      val storeResult = storageAdapter.store(fileName, compressedBytes, "image/jpeg")
+      onProgress(0.50f)
+      val storeResult = storageAdapter.store(storagePath, compressedBytes, "image/jpeg") { progress ->
+        val mapped = 0.50f + (progress * 0.50f)
+        onProgress(mapped.coerceIn(0f, 1f))
+      }
       onProgress(1.0f)
       storeResult
     } catch (e: Exception) {
       Result.failure(e)
     }
   }
+
+  suspend fun uploadImage(
+    bitmap: Bitmap,
+    userId: String,
+    type: MediaType,
+    onProgress: (Float) -> Unit
+  ): Result<String> = uploadImage(bitmap, userId, type, null, onProgress)
 
   /**
    * Uploads an image or video from an existing local Uri.
@@ -362,31 +506,39 @@ class MediaService(
     uri: Uri,
     userId: String,
     type: MediaType = MediaType.POST_MEDIA,
+    targetId: String? = null,
     onProgress: (Float) -> Unit
   ): Result<ProcessedMedia> = withContext(Dispatchers.IO) {
     try {
+      if (userId.isBlank()) {
+        return@withContext Result.failure(
+          IllegalStateException("User is not authenticated. Please log in to upload media.")
+        )
+      }
+
       onProgress(0.10f)
       val validation = validateMediaUri(uri)
       if (!validation.isValid) {
         return@withContext Result.failure(IllegalArgumentException(validation.errorMessage ?: "Validation failed"))
       }
 
-      onProgress(0.30f)
+      onProgress(0.25f)
 
       if (validation.category == MediaCategory.VIDEO) {
-        // Video processing & thumbnail generation
-        val videoPrefix = "video_${type.name.lowercase(Locale.ROOT)}"
-        val videoFileName = "${videoPrefix}_${userId}_${System.currentTimeMillis()}_${UUID.randomUUID().toString().take(6)}.mp4"
+        val videoFileName = "video_${System.currentTimeMillis()}_${UUID.randomUUID().toString().take(6)}.mp4"
+        val storagePath = generateStoragePath(userId, type, videoFileName, targetId)
 
         val inputStream = context.contentResolver.openInputStream(uri)
-          ?: return@withContext Result.failure(IllegalArgumentException("Unable to read video stream"))
+          ?: return@withContext Result.failure(IllegalArgumentException("Unable to read video stream from selected file."))
 
-        onProgress(0.60f)
-        val videoResult = storageAdapter.storeStream(videoFileName, inputStream, validation.mimeType ?: "video/mp4")
+        val videoResult = storageAdapter.storeStream(storagePath, inputStream, validation.mimeType ?: "video/mp4") { p ->
+          val mapped = 0.25f + (p * 0.55f)
+          onProgress(mapped.coerceIn(0f, 1f))
+        }
         val videoUrl = videoResult.getOrThrow()
 
-        // Generate thumbnail
-        onProgress(0.80f)
+        // Generate and upload video thumbnail
+        onProgress(0.85f)
         var thumbUrl: String? = null
         try {
           val retriever = MediaMetadataRetriever()
@@ -397,7 +549,8 @@ class MediaService(
           if (frameBitmap != null) {
             val thumbBytes = compressAndResize(frameBitmap, type)
             val thumbFileName = "thumb_${videoFileName.removeSuffix(".mp4")}.jpg"
-            val thumbResult = storageAdapter.store(thumbFileName, thumbBytes, "image/jpeg")
+            val thumbStoragePath = generateStoragePath(userId, type, thumbFileName, targetId)
+            val thumbResult = storageAdapter.store(thumbStoragePath, thumbBytes, "image/jpeg") { _ -> }
             thumbUrl = thumbResult.getOrNull()
           }
         } catch (_: Exception) {}
@@ -412,19 +565,19 @@ class MediaService(
           )
         )
       } else {
-        // Image processing
         val inputStream = context.contentResolver.openInputStream(uri)
-          ?: return@withContext Result.failure(IllegalArgumentException("Unable to read image stream"))
+          ?: return@withContext Result.failure(IllegalArgumentException("Unable to read image stream."))
         val bitmap = BitmapFactory.decodeStream(inputStream)
         inputStream.close()
 
         if (bitmap == null) {
-          return@withContext Result.failure(IllegalArgumentException("Could not decode image content"))
+          return@withContext Result.failure(IllegalArgumentException("Could not decode image content. Please select a valid JPG, PNG, or WEBP image."))
         }
 
-        onProgress(0.60f)
-        val uploadResult = uploadImage(bitmap, userId, type, onProgress = { p ->
-          onProgress(0.60f + (p * 0.40f))
+        onProgress(0.35f)
+        val uploadResult = uploadImage(bitmap, userId, type, targetId, onProgress = { p ->
+          val mapped = 0.35f + (p * 0.65f)
+          onProgress(mapped.coerceIn(0f, 1f))
         })
         val imageUrl = uploadResult.getOrThrow()
 
@@ -442,15 +595,30 @@ class MediaService(
     }
   }
 
+  suspend fun uploadMediaFromUri(
+    uri: Uri,
+    userId: String,
+    type: MediaType = MediaType.POST_MEDIA,
+    onProgress: (Float) -> Unit
+  ): Result<ProcessedMedia> = uploadMediaFromUri(uri, userId, type, null, onProgress)
+
+  suspend fun uploadImageFromUri(
+    uri: Uri,
+    userId: String,
+    type: MediaType,
+    targetId: String? = null,
+    onProgress: (Float) -> Unit
+  ): Result<String> = withContext(Dispatchers.IO) {
+    val res = uploadMediaFromUri(uri, userId, type, targetId, onProgress)
+    res.map { it.url }
+  }
+
   suspend fun uploadImageFromUri(
     uri: Uri,
     userId: String,
     type: MediaType,
     onProgress: (Float) -> Unit
-  ): Result<String> = withContext(Dispatchers.IO) {
-    val res = uploadMediaFromUri(uri, userId, type, onProgress)
-    res.map { it.url }
-  }
+  ): Result<String> = uploadImageFromUri(uri, userId, type, null, onProgress)
 
   /**
    * Deletes an image or video from storage.

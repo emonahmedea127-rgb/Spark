@@ -278,7 +278,7 @@ data class NotificationEntity(
   val timestamp: Long,
   val isRead: Boolean = false,
   val targetPostId: String? = null,
-  val recipientId: String = "user_me",
+  val recipientId: String = "",
   val actionData: String? = null, // e.g. relationshipId or target user id
   val senderId: String = ""
 )
@@ -353,7 +353,7 @@ data class PageEntity(
   val followersCount: Int = 0,
   val isLiked: Boolean = false,
   val isAdmin: Boolean = false,
-  val ownerId: String = "user_me",
+  val ownerId: String = "",
   val username: String = "",
   val website: String = "",
   val location: String = "",
@@ -374,7 +374,7 @@ data class GroupEntity(
   val membersCount: Int = 1,
   val isJoined: Boolean = false,
   val role: String = "Member",
-  val ownerId: String = "user_me",
+  val ownerId: String = "",
   val coverUrl: String = "",
   val rules: String = "1. Be respectful and constructive.\n2. No hate speech or bullying.\n3. Respect privacy and confidentiality.\n4. Relevant discussions only.",
   val hasPendingJoinRequest: Boolean = false,

@@ -134,8 +134,14 @@ fun SocivaApp(
       return
     }
     SocivaScreen.PROFILE -> {
+      val authUid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: ""
+      val profileTargetId = if (activeProfileUserId.isNullOrBlank() || activeProfileUserId == "user_me") {
+        authUid.ifBlank { currentUser?.id ?: viewModel.currentUserId.value }
+      } else {
+        activeProfileUserId!!
+      }
       ProfileScreen(
-        userId = activeProfileUserId ?: "user_me",
+        userId = profileTargetId,
         viewModel = viewModel,
         onBack = { viewModel.navigateTo(SocivaScreen.MAIN) }
       )
