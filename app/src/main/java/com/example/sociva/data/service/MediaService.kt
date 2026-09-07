@@ -6,6 +6,8 @@ import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import com.example.BuildConfig
+import com.google.firebase.storage.FirebaseStorage
+import com.google.firebase.storage.StorageMetadata
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -127,6 +129,76 @@ class SocivaStorageAdapter(private val context: Context) : MediaStorageAdapter {
     } else {
       File(mediaDir, mediaId).toURI().toString()
     }
+  }
+}
+
+/**
+ * Storage adapter that uploads photos and videos to Firebase Cloud Storage,
+ * with automatic fallback to private app storage when offline or unauthenticated.
+ */
+class FirebaseStorageAdapter(
+  private val context: Context,
+  private val fallbackAdapter: MediaStorageAdapter = SocivaStorageAdapter(context)
+) : MediaStorageAdapter {
+
+  private val storageRef by lazy {
+    try {
+      FirebaseStorage.getInstance().reference
+    } catch (e: Exception) {
+      null
+    }
+  }
+
+  override suspend fun store(fileName: String, bytes: ByteArray, mimeType: String): Result<String> = withContext(Dispatchers.IO) {
+    val rootRef = storageRef
+    if (rootRef != null) {
+      try {
+        val fileRef = rootRef.child("uploads/$fileName")
+        val metadata = StorageMetadata.Builder()
+          .setContentType(mimeType)
+          .build()
+        fileRef.putBytes(bytes, metadata).awaitResult()
+        val downloadUri = fileRef.downloadUrl.awaitResult()
+        return@withContext Result.success(downloadUri.toString())
+      } catch (e: Exception) {
+        // Graceful fallback to local adapter ensures uploads never crash or block posting
+      }
+    }
+    fallbackAdapter.store(fileName, bytes, mimeType)
+  }
+
+  override suspend fun storeStream(fileName: String, inputStream: InputStream, mimeType: String): Result<String> = withContext(Dispatchers.IO) {
+    val rootRef = storageRef
+    if (rootRef != null) {
+      try {
+        val fileRef = rootRef.child("uploads/$fileName")
+        val metadata = StorageMetadata.Builder()
+          .setContentType(mimeType)
+          .build()
+        fileRef.putStream(inputStream, metadata).awaitResult()
+        val downloadUri = fileRef.downloadUrl.awaitResult()
+        return@withContext Result.success(downloadUri.toString())
+      } catch (e: Exception) {
+        // Fall back gracefully
+      }
+    }
+    fallbackAdapter.storeStream(fileName, inputStream, mimeType)
+  }
+
+  override suspend fun delete(fileUrl: String): Boolean = withContext(Dispatchers.IO) {
+    if (fileUrl.contains("firebasestorage.googleapis.com")) {
+      try {
+        FirebaseStorage.getInstance().getReferenceFromUrl(fileUrl).delete().awaitResult()
+        return@withContext true
+      } catch (e: Exception) {
+        // Ignore deletion failures
+      }
+    }
+    fallbackAdapter.delete(fileUrl)
+  }
+
+  override fun getUrl(mediaId: String): String {
+    return fallbackAdapter.getUrl(mediaId)
   }
 }
 

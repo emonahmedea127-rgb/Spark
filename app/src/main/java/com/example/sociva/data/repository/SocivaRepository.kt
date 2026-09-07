@@ -2,6 +2,7 @@ package com.example.sociva.data.repository
 
 import com.example.sociva.data.local.*
 import com.example.sociva.data.model.*
+import com.example.sociva.data.service.FirestoreService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -20,7 +21,10 @@ class SocivaRepository(
   private val scope: CoroutineScope = CoroutineScope(Dispatchers.IO)
 ) {
 
+  val firestoreService: FirestoreService = FirestoreService(dao, scope)
+
   init {
+    firestoreService.startSync()
     scope.launch {
       // Check if seeded
       val existingUsers = dao.getAllUsers().first()
@@ -209,6 +213,7 @@ class SocivaRepository(
       reviewTagsBeforeAppearing = updated.reviewTagsBeforeAppearing
     )
     dao.updateUser(updatedEntity)
+    firestoreService.syncUserProfile(updatedEntity)
 
     // Propagate updated name and username anywhere displayed
     val newUsername = updated.username.ifBlank { existing.username }
@@ -220,6 +225,10 @@ class SocivaRepository(
     dao.updatePartnerNameInUsers(updated.id, fullName)
   }
 
+  suspend fun refreshUserProfileFromFirestore(userId: String): UserEntity? {
+    return firestoreService.fetchUserProfile(userId)
+  }
+
   suspend fun updateUserProfile(
     userId: String,
     fullName: String,
@@ -229,15 +238,15 @@ class SocivaRepository(
     location: String
   ) {
     val user = dao.getUserById(userId).first() ?: return
-    dao.updateUser(
-      user.copy(
-        fullName = fullName,
-        bio = bio,
-        work = work,
-        education = education,
-        location = location
-      )
+    val updated = user.copy(
+      fullName = fullName,
+      bio = bio,
+      work = work,
+      education = education,
+      location = location
     )
+    dao.updateUser(updated)
+    firestoreService.syncUserProfile(updated)
   }
 
   // --- Relationships ---
@@ -575,6 +584,7 @@ class SocivaRepository(
     dao.updateParticipantAvatarInConversations(userId, newAvatarUrl)
     val user = dao.getUserById(userId).first()
     if (user != null) {
+      firestoreService.syncUserProfile(user.copy(avatarUrl = newAvatarUrl))
       dao.updateActorAvatarInNotifications(user.fullName, newAvatarUrl)
 
       // Automatic Profile Picture Update Post (Real database post)
@@ -619,6 +629,7 @@ class SocivaRepository(
     dao.updateParticipantAvatarInConversations(userId, "")
     val user = dao.getUserById(userId).first()
     if (user != null) {
+      firestoreService.syncUserProfile(user.copy(avatarUrl = ""))
       dao.updateActorAvatarInNotifications(user.fullName, "")
     }
   }
@@ -628,6 +639,7 @@ class SocivaRepository(
     dao.updateUserCover(userId, newCoverUrl, now)
     val user = dao.getUserById(userId).first()
     if (user != null) {
+      firestoreService.syncUserProfile(user.copy(coverUrl = newCoverUrl))
       // Automatic Cover Photo Update Post (Real database post)
       val pronoun = when (user.gender.trim().lowercase(java.util.Locale.ROOT)) {
         "male" -> "his"
@@ -811,6 +823,7 @@ class SocivaRepository(
       targetGroupName = targetGroupName
     )
     dao.insertPost(newPost)
+    firestoreService.publishPost(newPost)
 
     if (taggedUserIds.isNotEmpty()) {
       val tags = taggedUserIds.map { taggedId ->
@@ -885,6 +898,7 @@ class SocivaRepository(
       targetGroupName = targetGroupName
     )
     dao.insertPost(newPost)
+    firestoreService.publishPost(newPost)
   }
 
   suspend fun removePostTag(postId: String, userId: String) {
@@ -1103,6 +1117,7 @@ class SocivaRepository(
       isLiked = false
     )
     dao.insertComment(newComment)
+    firestoreService.publishComment(newComment)
 
     // Send notifications
     if (parentComment != null) {
@@ -1485,6 +1500,7 @@ class SocivaRepository(
       isMine = true
     )
     dao.insertMessage(msg)
+    firestoreService.publishMessage(msg)
     dao.updateConversationLastMessage(convId, text, now)
 
     // Notify recipient

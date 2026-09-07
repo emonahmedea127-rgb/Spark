@@ -51,8 +51,9 @@ class SocivaViewModel(application: Application) : AndroidViewModel(application) 
 
   private val database = SocivaDatabase.getDatabase(application)
   private val repository = SocivaRepository(database.socivaDao(), viewModelScope)
+  private val firestoreService = repository.firestoreService
   private val mediaService = MediaService(application)
-  private val authRepository: AuthRepository = LocalAuthRepository(application, database.socivaDao())
+  private val authRepository: AuthRepository = FirebaseAuthRepository(application, database.socivaDao())
 
   val authState: StateFlow<AuthState> = authRepository.authState
 
@@ -78,7 +79,7 @@ class SocivaViewModel(application: Application) : AndroidViewModel(application) 
   private val _activeScreen = MutableStateFlow(SocivaScreen.MAIN)
   val activeScreen: StateFlow<SocivaScreen> = _activeScreen.asStateFlow()
 
-  private val _activeProfileUserId = MutableStateFlow<String?>("user_me")
+  private val _activeProfileUserId = MutableStateFlow<String?>(null)
   val activeProfileUserId: StateFlow<String?> = _activeProfileUserId.asStateFlow()
 
   private val _activePageId = MutableStateFlow<String?>("page_spark")
@@ -92,12 +93,12 @@ class SocivaViewModel(application: Application) : AndroidViewModel(application) 
 
   private val _activeIdentity = MutableStateFlow(
     ActiveIdentity(
-      id = "user_me",
-      name = "Emon Ahmed",
-      username = "emonahmed",
-      avatarUrl = "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&h=300&fit=crop",
+      id = "",
+      name = "Spark User",
+      username = "user",
+      avatarUrl = "",
       type = IdentityType.PERSONAL,
-      isVerified = true
+      isVerified = false
     )
   )
   val activeIdentity: StateFlow<ActiveIdentity> = _activeIdentity.asStateFlow()
@@ -154,7 +155,7 @@ class SocivaViewModel(application: Application) : AndroidViewModel(application) 
   private val prefs = getApplication<Application>().getSharedPreferences("sociva_session", android.content.Context.MODE_PRIVATE)
 
   // Authentication & Current User State
-  private val _currentUserId = MutableStateFlow(prefs.getString("auth_user_id", "user_me") ?: "user_me")
+  private val _currentUserId = MutableStateFlow(prefs.getString("auth_user_id", "") ?: "")
   val currentUserId: StateFlow<String> = _currentUserId.asStateFlow()
 
   private val _isLoggedIn = MutableStateFlow(false)
@@ -270,8 +271,11 @@ class SocivaViewModel(application: Application) : AndroidViewModel(application) 
           isVerified = false
         )
         repository.setUserPresence(state.session.userId, isOnline = true)
+        firestoreService.startUserProfileListener(state.session.userId)
       } else {
         _isLoggedIn.value = false
+        _currentUserId.value = ""
+        _activeProfileUserId.value = null
       }
     }
     viewModelScope.launch {
@@ -394,7 +398,7 @@ class SocivaViewModel(application: Application) : AndroidViewModel(application) 
         )
       )
     }
-    pageList.filter { it.isAdmin || it.ownerId == (user?.id ?: "user_me") }.forEach { page ->
+    pageList.filter { it.isAdmin || it.ownerId == (user?.id ?: _currentUserId.value) }.forEach { page ->
       list.add(
         ActiveIdentity(
           id = page.id,
@@ -407,7 +411,7 @@ class SocivaViewModel(application: Application) : AndroidViewModel(application) 
         )
       )
     }
-    groupList.filter { it.role in listOf("Owner", "Admin", "Moderator") || it.ownerId == (user?.id ?: "user_me") }.forEach { group ->
+    groupList.filter { it.role in listOf("Owner", "Admin", "Moderator") || it.ownerId == (user?.id ?: _currentUserId.value) }.forEach { group ->
       list.add(
         ActiveIdentity(
           id = group.id,
@@ -497,7 +501,7 @@ class SocivaViewModel(application: Application) : AndroidViewModel(application) 
   fun getPageFollowers(pageId: String): Flow<List<PageFollower>> = repository.getPageFollowers(pageId)
 
   fun isUserPageFollower(pageId: String): Flow<Boolean> =
-    repository.isUserPageFollower(pageId, currentUser.value?.id ?: "user_me")
+    repository.isUserPageFollower(pageId, currentUser.value?.id ?: _currentUserId.value)
 
   fun getGroupMembers(groupId: String): Flow<List<GroupMember>> = repository.getGroupMembers(groupId)
 
@@ -874,6 +878,7 @@ class SocivaViewModel(application: Application) : AndroidViewModel(application) 
             _activeScreen.value = SocivaScreen.MAIN
             prefs.edit().putString("auth_user_id", result.session.userId).putBoolean("is_logged_in", true).apply()
             repository.setUserPresence(result.session.userId, isOnline = true)
+            firestoreService.startUserProfileListener(result.session.userId)
             showToast("Welcome back, ${result.session.displayName}!")
           }
           is AuthResult.Error -> {
@@ -930,6 +935,7 @@ class SocivaViewModel(application: Application) : AndroidViewModel(application) 
             _activeScreen.value = SocivaScreen.MAIN
             prefs.edit().putString("auth_user_id", result.session.userId).putBoolean("is_logged_in", true).apply()
             repository.setUserPresence(result.session.userId, isOnline = true)
+            firestoreService.startUserProfileListener(result.session.userId)
             showToast("Account created! Welcome to Spark, ${result.session.displayName}.")
           }
           is AuthResult.Error -> {
@@ -976,15 +982,39 @@ class SocivaViewModel(application: Application) : AndroidViewModel(application) 
     val uid = _currentUserId.value
     viewModelScope.launch {
       try {
-        repository.setUserPresence(uid, isOnline = false)
+        if (uid.isNotBlank()) {
+          repository.setUserPresence(uid, isOnline = false)
+        }
+        firestoreService.stopSync()
         authRepository.logout()
       } catch (e: Exception) {
         // Safe catch
       }
       _isLoggedIn.value = false
-      prefs.edit().putBoolean("is_logged_in", false).apply()
+      _currentUserId.value = ""
+      _activeProfileUserId.value = null
+      _activeIdentity.value = ActiveIdentity(
+        id = "",
+        name = "Spark User",
+        username = "user",
+        avatarUrl = "",
+        type = IdentityType.PERSONAL,
+        isVerified = false
+      )
+      prefs.edit().clear().apply()
       _activeScreen.value = SocivaScreen.MAIN
       showToast("You have been logged out.")
+    }
+  }
+
+  fun refreshUserProfile(userId: String) {
+    if (userId.isBlank()) return
+    viewModelScope.launch {
+      try {
+        repository.refreshUserProfileFromFirestore(userId)
+      } catch (e: Exception) {
+        // Safe catch
+      }
     }
   }
 
@@ -1432,14 +1462,14 @@ class SocivaViewModel(application: Application) : AndroidViewModel(application) 
   }
 
   fun getFriendStatusFlow(userId: String): Flow<FriendStatus> =
-    repository.getFriendStatusFlow("user_me", userId)
+    repository.getFriendStatusFlow(_currentUserId.value, userId)
 
   fun isFollowingFlow(userId: String): Flow<Boolean> =
-    repository.isFollowingFlow("user_me", userId)
+    repository.isFollowingFlow(_currentUserId.value, userId)
 
   fun sendFriendRequest(targetUserId: String) {
     viewModelScope.launch {
-      val success = repository.sendFriendRequest("user_me", targetUserId)
+      val success = repository.sendFriendRequest(_currentUserId.value, targetUserId)
       if (success) {
         showToast("Friend request sent! You are now following them.")
       }
@@ -1448,7 +1478,7 @@ class SocivaViewModel(application: Application) : AndroidViewModel(application) 
 
   fun cancelFriendRequest(targetUserId: String) {
     viewModelScope.launch {
-      val success = repository.cancelFriendRequest("user_me", targetUserId)
+      val success = repository.cancelFriendRequest(_currentUserId.value, targetUserId)
       if (success) {
         showToast("Friend request cancelled")
       }
@@ -1466,7 +1496,7 @@ class SocivaViewModel(application: Application) : AndroidViewModel(application) 
 
   fun acceptFriendRequest(request: FriendRequestItem) {
     viewModelScope.launch {
-      repository.acceptFriendRequest(request.id, "user_me")
+      repository.acceptFriendRequest(request.id, _currentUserId.value)
       showToast("You and ${request.fullName} are now friends! 🤝")
     }
   }
@@ -1474,7 +1504,7 @@ class SocivaViewModel(application: Application) : AndroidViewModel(application) 
   fun acceptFriendRequestById(requestId: String) {
     viewModelScope.launch {
       val req = friendRequests.value.find { it.id == requestId }
-      repository.acceptFriendRequest(requestId, "user_me")
+      repository.acceptFriendRequest(requestId, _currentUserId.value)
       showToast("You and ${req?.fullName ?: "user"} are now friends! 🤝")
     }
   }
@@ -1483,13 +1513,13 @@ class SocivaViewModel(application: Application) : AndroidViewModel(application) 
     viewModelScope.launch {
       val req = friendRequests.value.find { it.senderId == senderUserId }
       if (req != null) {
-        repository.acceptFriendRequest(req.id, "user_me")
+        repository.acceptFriendRequest(req.id, _currentUserId.value)
         showToast("You and ${req.fullName} are now friends! 🤝")
       } else {
         // Fallback: check pending request between
         val directReq = repository.getIncomingFriendRequests(_currentUserId.value).first().find { it.senderId == senderUserId }
         if (directReq != null) {
-          repository.acceptFriendRequest(directReq.id, "user_me")
+          repository.acceptFriendRequest(directReq.id, _currentUserId.value)
           showToast("Friend request accepted! 🤝")
         }
       }
@@ -1505,21 +1535,21 @@ class SocivaViewModel(application: Application) : AndroidViewModel(application) 
 
   fun removeFriend(userId: String) {
     viewModelScope.launch {
-      repository.removeFriend("user_me", userId)
+      repository.removeFriend(_currentUserId.value, userId)
       showToast("Removed from friends")
     }
   }
 
   fun followUser(userId: String) {
     viewModelScope.launch {
-      repository.followUser("user_me", userId)
+      repository.followUser(_currentUserId.value, userId)
       showToast("Following")
     }
   }
 
   fun unfollowUser(userId: String) {
     viewModelScope.launch {
-      repository.unfollowUser("user_me", userId)
+      repository.unfollowUser(_currentUserId.value, userId)
       showToast("Unfollowed")
     }
   }
@@ -1538,7 +1568,7 @@ class SocivaViewModel(application: Application) : AndroidViewModel(application) 
 
   fun updateUserProfile(fullName: String, bio: String, work: String, education: String, location: String) {
     viewModelScope.launch {
-      repository.updateUserProfile("user_me", fullName, bio, work, education, location)
+      repository.updateUserProfile(_currentUserId.value, fullName, bio, work, education, location)
       showToast("Profile updated successfully! ✨")
     }
   }
@@ -1692,7 +1722,7 @@ class SocivaViewModel(application: Application) : AndroidViewModel(application) 
   // --- Profile Picture & Cover Photo Management ---
 
   fun uploadAndSetProfilePicture(bitmap: Bitmap) {
-    val currentUserId = currentUser.value?.id ?: "user_me"
+    val currentUserId = currentUser.value?.id ?: _currentUserId.value
     val task: suspend () -> Unit = {
       _uploadState.value = UploadState.Validating()
       delay(120)
@@ -1730,7 +1760,7 @@ class SocivaViewModel(application: Application) : AndroidViewModel(application) 
   }
 
   fun uploadAndSetCoverPhoto(bitmap: Bitmap) {
-    val currentUserId = currentUser.value?.id ?: "user_me"
+    val currentUserId = currentUser.value?.id ?: _currentUserId.value
     val task: suspend () -> Unit = {
       _uploadState.value = UploadState.Validating()
       delay(120)

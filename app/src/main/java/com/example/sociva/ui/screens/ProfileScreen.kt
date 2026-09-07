@@ -74,13 +74,14 @@ fun ProfileScreen(
   var croppingBitmap by remember { mutableStateOf<Bitmap?>(null) }
   var currentCropType by remember { mutableStateOf(CropType.PROFILE) }
 
-  val isMyProfile = (userId == currentUser?.id || userId == "user_me")
+  val isMyProfile = (userId == currentUser?.id || userId == viewModel.currentUserId.value)
   val isUserBlocked by viewModel.isUserBlockedFlow(userId).collectAsState(initial = false)
   val friendStatus by viewModel.getFriendStatusFlow(userId).collectAsState(initial = FriendStatus.NONE)
   val isFollowing by viewModel.isFollowingFlow(userId).collectAsState(initial = false)
   val profileViewStats by viewModel.getProfileViewStatsForUser(userId).collectAsState(initial = com.example.sociva.data.model.ProfileViewStats())
 
   LaunchedEffect(userId) {
+    viewModel.refreshUserProfile(userId)
     if (!isMyProfile) {
       viewModel.recordProfileVisit(userId)
     }

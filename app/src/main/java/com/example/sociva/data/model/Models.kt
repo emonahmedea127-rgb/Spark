@@ -380,9 +380,9 @@ enum class IdentityType {
 
 data class ActiveIdentity(
   val type: IdentityType = IdentityType.PERSONAL,
-  val id: String = "user_me",
-  val name: String = "Emon Ahmed",
-  val username: String = "emonahmed",
+  val id: String = "",
+  val name: String = "User",
+  val username: String = "user",
   val avatarUrl: String = "",
   val coverUrl: String = "",
   val isVerified: Boolean = false,
@@ -521,7 +521,7 @@ data class ReportItem(
 )
 
 data class UserSettings(
-  val userId: String = "user_me",
+  val userId: String = "",
   val twoFactorEnabled: Boolean = false,
   val twoFactorMethod: String = "AUTHENTICATOR", // "AUTHENTICATOR" or "SMS"
   val profileVisibility: String = "Public", // "Public", "Friends", "Only Me"
