@@ -197,7 +197,7 @@ class FirebaseAuthRepository(
       return@withContext AuthResult.Error("Please enter both your email address and password.")
     }
 
-    val fbAuth = auth ?: return@withContext AuthResult.Error("Firebase Authentication is not available.")
+    val fbAuth = auth ?: return@withContext AuthResult.Error("Authentication service is temporarily unavailable. Please try again later.")
 
     try {
       val authResult = fbAuth.signInWithEmailAndPassword(cleanIdentifier, cleanPassword).awaitResult()
@@ -295,8 +295,13 @@ class FirebaseAuthRepository(
     } catch (e: FirebaseAuthInvalidUserException) {
       return@withContext AuthResult.Error("No account found with this email address. Please sign up first.")
     } catch (e: Exception) {
-      Log.w(TAG, "Firebase signIn failed: ${e.message}")
-      return@withContext AuthResult.Error(e.localizedMessage ?: "Login failed. Please check your credentials and network.")
+      Log.w(TAG, "Sign in failed: ${e.message}")
+      val msg = if (e.localizedMessage?.contains("Firebase", ignoreCase = true) == true) {
+        "Login failed. Please check your credentials and network."
+      } else {
+        e.localizedMessage ?: "Login failed. Please check your credentials and network."
+      }
+      return@withContext AuthResult.Error(msg)
     }
   }
 
@@ -323,7 +328,7 @@ class FirebaseAuthRepository(
       return@withContext AuthResult.Error("Password must be at least 6 characters.")
     }
 
-    val fbAuth = auth ?: return@withContext AuthResult.Error("Firebase Authentication is not available.")
+    val fbAuth = auth ?: return@withContext AuthResult.Error("Authentication service is temporarily unavailable. Please try again later.")
 
     try {
       val authResult = fbAuth.createUserWithEmailAndPassword(cleanEmail, cleanPassword).awaitResult()
@@ -415,8 +420,13 @@ class FirebaseAuthRepository(
     } catch (e: FirebaseAuthWeakPasswordException) {
       return@withContext AuthResult.Error("The password provided is too weak: ${e.reason ?: "Minimum 6 characters."}")
     } catch (e: Exception) {
-      Log.w(TAG, "Firebase createUser failed: ${e.message}")
-      return@withContext AuthResult.Error(e.localizedMessage ?: "Failed to create account. Please try again.")
+      Log.w(TAG, "Create user failed: ${e.message}")
+      val msg = if (e.localizedMessage?.contains("Firebase", ignoreCase = true) == true) {
+        "Failed to create account. Please try again."
+      } else {
+        e.localizedMessage ?: "Failed to create account. Please try again."
+      }
+      return@withContext AuthResult.Error(msg)
     }
   }
 
@@ -426,7 +436,7 @@ class FirebaseAuthRepository(
       return@withContext PasswordResetResult.Error("Please enter your email address.")
     }
 
-    val fbAuth = auth ?: return@withContext PasswordResetResult.Error("Firebase Authentication is not available.")
+    val fbAuth = auth ?: return@withContext PasswordResetResult.Error("Authentication service is temporarily unavailable. Please try again later.")
 
     try {
       fbAuth.sendPasswordResetEmail(cleanEmail).awaitResult()
@@ -437,9 +447,12 @@ class FirebaseAuthRepository(
       return@withContext PasswordResetResult.Error("No account found with that email address.")
     } catch (e: Exception) {
       Log.w(TAG, "sendPasswordResetEmail error: ${e.message}")
-      return@withContext PasswordResetResult.Error(
+      val msg = if (e.localizedMessage?.contains("Firebase", ignoreCase = true) == true) {
+        "Unable to send password reset email. Please verify your connection."
+      } else {
         e.localizedMessage ?: "Unable to send password reset email. Please verify your connection."
-      )
+      }
+      return@withContext PasswordResetResult.Error(msg)
     }
   }
 

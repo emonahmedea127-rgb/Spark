@@ -38,6 +38,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
+import com.example.sociva.data.service.UploadState
+import com.example.sociva.ui.components.UploadProgressDialog
 import coil.request.ImageRequest
 import com.example.sociva.data.model.User
 import com.example.sociva.data.model.StructuredLocation
@@ -55,6 +57,7 @@ fun EditProfileScreen(
   onBack: () -> Unit
 ) {
   val currentUser by viewModel.currentUser.collectAsState()
+  val uploadState by viewModel.uploadState.collectAsState()
   val friends by viewModel.friends.collectAsState(initial = emptyList())
   val context = LocalContext.current
   val coroutineScope = rememberCoroutineScope()
@@ -1409,6 +1412,15 @@ fun EditProfileScreen(
         countryCode = ""
       },
       onDismiss = { showCountryPicker = false }
+    )
+  }
+
+  // Upload Progress & Status Dialog
+  if (uploadState !is UploadState.Idle) {
+    UploadProgressDialog(
+      state = uploadState,
+      onRetry = { viewModel.retryLastUpload() },
+      onDismiss = { viewModel.dismissUploadState() }
     )
   }
 }

@@ -618,7 +618,8 @@ fun PostComposerScreen(
             CircularProgressIndicator(color = SocivaBlue)
             val label = when (val st = uploadState) {
               is UploadState.Uploading -> "Uploading media... ${(st.progress * 100).toInt()}%"
-              is UploadState.Validating -> st.message
+              is UploadState.Compressing -> "Optimizing..."
+              is UploadState.Validating -> "Publishing..."
               else -> "Publishing..."
             }
             Text(
@@ -629,6 +630,29 @@ fun PostComposerScreen(
           }
         }
       }
+    }
+
+    // Expose error state when post creation or upload fails
+    if (uploadState is UploadState.Error) {
+      val err = uploadState as UploadState.Error
+      val userMessage = if (err.message.contains("Firebase", ignoreCase = true) ||
+          err.message.contains("Firestore", ignoreCase = true) ||
+          err.message.contains("PERMISSION_DENIED", ignoreCase = true) ||
+          err.message.contains("Exception", ignoreCase = true)) {
+        "Couldn't publish your post. Please try again."
+      } else {
+        err.message
+      }
+      AlertDialog(
+        onDismissRequest = { viewModel.dismissUploadState() },
+        title = { Text("Notice") },
+        text = { Text(userMessage) },
+        confirmButton = {
+          TextButton(onClick = { viewModel.dismissUploadState() }) {
+            Text("OK")
+          }
+        }
+      )
     }
   }
 

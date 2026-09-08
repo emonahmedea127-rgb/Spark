@@ -1,8 +1,10 @@
 package com.example.sociva.data.repository
 
+import android.util.Log
 import com.example.sociva.data.local.*
 import com.example.sociva.data.model.*
 import com.example.sociva.data.service.FirestoreService
+import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -779,11 +781,14 @@ class SocivaRepository(
     authorType: String = "PERSONAL",
     targetGroupId: String? = null,
     targetGroupName: String? = null
-  ) {
+  ): Result<PostEntity> {
+    val authUid = FirebaseAuth.getInstance().currentUser?.uid
+    val authoritativeAuthorId = authUid ?: author.id
     val postId = "post_" + UUID.randomUUID().toString().take(8)
+
     val newPost = PostEntity(
       id = postId,
-      authorId = author.id,
+      authorId = authoritativeAuthorId,
       authorName = author.fullName,
       authorUsername = author.username,
       authorAvatar = author.avatarUrl,
@@ -802,8 +807,18 @@ class SocivaRepository(
       targetGroupId = targetGroupId,
       targetGroupName = targetGroupName
     )
-    dao.insertPost(newPost)
-    firestoreService.publishPost(newPost)
+
+    // 1. Write REAL post to Cloud Firestore FIRST and await confirmation
+    val firestoreResult = firestoreService.publishPost(newPost, mediaUrls, taggedUserIds)
+    if (firestoreResult.isFailure) {
+      val ex = firestoreResult.exceptionOrNull() ?: Exception("Couldn't publish your post. Please try again.")
+      Log.e("SocivaRepository", "Firestore post persistence failed: ${ex.message}", ex)
+      return Result.failure(ex)
+    }
+
+    // 2. After successful Firestore write: update local Room cache
+    val persistedPost = firestoreResult.getOrNull() ?: newPost
+    dao.insertPost(persistedPost)
 
     if (taggedUserIds.isNotEmpty()) {
       val tags = taggedUserIds.map { taggedId ->
@@ -813,14 +828,14 @@ class SocivaRepository(
           id = "ptag_" + UUID.randomUUID().toString().take(8),
           postId = postId,
           taggedUserId = taggedId,
-          taggedByUserId = author.id,
+          taggedByUserId = authoritativeAuthorId,
           status = status
         )
       }
       dao.insertPostTags(tags)
 
       // Notify tagged users
-      taggedUserIds.filter { it != author.id }.forEach { taggedId ->
+      taggedUserIds.filter { it != authoritativeAuthorId }.forEach { taggedId ->
         dao.insertNotification(
           NotificationEntity(
             id = "notif_" + UUID.randomUUID().toString().take(8),
@@ -833,11 +848,13 @@ class SocivaRepository(
             isRead = false,
             targetPostId = postId,
             recipientId = taggedId,
-            senderId = author.id
+            senderId = authoritativeAuthorId
           )
         )
       }
     }
+
+    return Result.success(persistedPost)
   }
 
   suspend fun createPost(
@@ -854,11 +871,14 @@ class SocivaRepository(
     taggedUserIds: List<String> = emptyList(),
     targetGroupId: String? = null,
     targetGroupName: String? = null
-  ) {
+  ): Result<PostEntity> {
+    val authUid = FirebaseAuth.getInstance().currentUser?.uid
+    val authoritativeAuthorId = authUid ?: authorId
     val postId = "post_" + UUID.randomUUID().toString().take(8)
+
     val newPost = PostEntity(
       id = postId,
-      authorId = authorId,
+      authorId = authoritativeAuthorId,
       authorName = authorName,
       authorUsername = authorUsername,
       authorAvatar = authorAvatar,
@@ -877,8 +897,20 @@ class SocivaRepository(
       targetGroupId = targetGroupId,
       targetGroupName = targetGroupName
     )
-    dao.insertPost(newPost)
-    firestoreService.publishPost(newPost)
+
+    // 1. Write REAL post to Cloud Firestore FIRST and await confirmation
+    val firestoreResult = firestoreService.publishPost(newPost, mediaUrls, taggedUserIds)
+    if (firestoreResult.isFailure) {
+      val ex = firestoreResult.exceptionOrNull() ?: Exception("Couldn't publish your post. Please try again.")
+      Log.e("SocivaRepository", "Firestore post persistence failed: ${ex.message}", ex)
+      return Result.failure(ex)
+    }
+
+    // 2. After successful Firestore write: update local Room cache
+    val persistedPost = firestoreResult.getOrNull() ?: newPost
+    dao.insertPost(persistedPost)
+
+    return Result.success(persistedPost)
   }
 
   suspend fun removePostTag(postId: String, userId: String) {

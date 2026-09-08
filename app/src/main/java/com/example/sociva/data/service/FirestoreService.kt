@@ -6,6 +6,7 @@ import com.example.sociva.data.local.MessageEntity
 import com.example.sociva.data.local.PostEntity
 import com.example.sociva.data.local.SocivaDao
 import com.example.sociva.data.local.UserEntity
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Query
@@ -13,6 +14,7 @@ import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Service to synchronize Spark data (Posts, Comments, Messages, Profiles)
@@ -68,9 +70,17 @@ class FirestoreService(
             scope.launch(Dispatchers.IO) {
               val entities = snapshots.documents.mapNotNull { doc ->
                 try {
-                  val id = doc.getString("id") ?: doc.id
+                  val id = doc.getString("postId") ?: doc.getString("id") ?: doc.id
                   val authorId = doc.getString("authorId") ?: return@mapNotNull null
-                  val content = doc.getString("content") ?: ""
+                  val content = doc.getString("caption") ?: doc.getString("content") ?: ""
+                  val mediaUrlsFromList = (doc.get("mediaUrls") as? List<*>)?.mapNotNull { it?.toString() }?.joinToString(",")
+                  val mediaUrlsStr = doc.getString("mediaUrlsString") ?: mediaUrlsFromList ?: ""
+                  val timestamp = doc.getLong("createdAt") ?: doc.getLong("timestamp") ?: System.currentTimeMillis()
+                  val likes = (doc.getLong("likesCount") ?: doc.getLong("likeCount") ?: doc.getLong("reactionCount") ?: 0L).toInt()
+                  val comments = (doc.getLong("commentsCount") ?: doc.getLong("commentCount") ?: 0L).toInt()
+                  val shares = (doc.getLong("sharesCount") ?: doc.getLong("shareCount") ?: 0L).toInt()
+                  val audience = doc.getString("audience") ?: doc.getString("visibility") ?: doc.getString("privacy") ?: "Public"
+                  val feeling = doc.getString("feelingOrActivity") ?: doc.getString("feeling")
                   PostEntity(
                     id = id,
                     authorId = authorId,
@@ -78,14 +88,14 @@ class FirestoreService(
                     authorUsername = doc.getString("authorUsername") ?: "sparkuser",
                     authorAvatar = doc.getString("authorAvatar") ?: "",
                     isAuthorVerified = doc.getBoolean("isAuthorVerified") ?: false,
-                    timestamp = doc.getLong("timestamp") ?: System.currentTimeMillis(),
+                    timestamp = timestamp,
                     content = content,
-                    mediaUrlsString = doc.getString("mediaUrlsString") ?: "",
-                    feelingOrActivity = doc.getString("feelingOrActivity"),
-                    audience = doc.getString("audience") ?: "Public",
-                    likesCount = (doc.getLong("likesCount") ?: 0L).toInt(),
-                    commentsCount = (doc.getLong("commentsCount") ?: 0L).toInt(),
-                    sharesCount = (doc.getLong("sharesCount") ?: 0L).toInt(),
+                    mediaUrlsString = mediaUrlsStr,
+                    feelingOrActivity = feeling,
+                    audience = audience,
+                    likesCount = likes,
+                    commentsCount = comments,
+                    sharesCount = shares,
                     myReaction = null,
                     isSaved = false,
                     authorType = doc.getString("authorType") ?: "PERSONAL",
@@ -108,35 +118,83 @@ class FirestoreService(
   }
 
   /**
-   * Uploads or updates a post in Cloud Firestore.
+   * Persists a real post document to Cloud Firestore at collection 'posts/{postId}'.
+   * Uses FirebaseAuth.currentUser?.uid as authoritative authorId.
+   * Awaits completion and returns Result.success or Result.failure with the actual exception.
    */
-  fun publishPost(post: PostEntity) {
-    val db = firestore ?: return
-    scope.launch(Dispatchers.IO) {
-      try {
-        val map = hashMapOf(
-          "id" to post.id,
-          "authorId" to post.authorId,
-          "authorName" to post.authorName,
-          "authorUsername" to post.authorUsername,
-          "authorAvatar" to post.authorAvatar,
-          "isAuthorVerified" to post.isAuthorVerified,
-          "timestamp" to post.timestamp,
-          "content" to post.content,
-          "mediaUrlsString" to post.mediaUrlsString,
-          "feelingOrActivity" to (post.feelingOrActivity ?: ""),
-          "audience" to post.audience,
-          "likesCount" to post.likesCount,
-          "commentsCount" to post.commentsCount,
-          "sharesCount" to post.sharesCount,
-          "authorType" to post.authorType,
-          "targetGroupId" to (post.targetGroupId ?: ""),
-          "targetGroupName" to (post.targetGroupName ?: "")
-        )
-        db.collection("posts").document(post.id).set(map, SetOptions.merge())
-      } catch (e: Exception) {
-        Log.w(TAG, "Failed to sync post to Firestore: ${e.message}")
-      }
+  suspend fun publishPost(
+    post: PostEntity,
+    mediaUrls: List<String> = emptyList(),
+    taggedUserIds: List<String> = emptyList()
+  ): Result<PostEntity> = withContext(Dispatchers.IO) {
+    val db = firestore
+      ?: return@withContext Result.failure(
+        IllegalStateException("Service is temporarily unavailable.")
+      )
+
+    val fbAuth = FirebaseAuth.getInstance()
+    val currentUser = fbAuth.currentUser
+    if (currentUser == null) {
+      Log.e(TAG, "Cannot publish post: User is not authenticated with Firebase Authentication.")
+      return@withContext Result.failure(IllegalStateException("Please sign in to publish a post."))
+    }
+    val authoritativeAuthorId = currentUser.uid
+
+    val mediaList: List<String> = if (mediaUrls.isNotEmpty()) {
+      mediaUrls
+    } else if (post.mediaUrlsString.isNotBlank()) {
+      post.mediaUrlsString.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+    } else {
+      emptyList()
+    }
+
+    val mediaType = when {
+      mediaList.any { it.contains(".mp4", ignoreCase = true) || it.contains("video", ignoreCase = true) } -> "VIDEO"
+      mediaList.isNotEmpty() -> "IMAGE"
+      else -> "TEXT"
+    }
+
+    val postMap = hashMapOf<String, Any?>(
+      "postId" to post.id,
+      "id" to post.id,
+      "authorId" to authoritativeAuthorId,
+      "authorName" to post.authorName,
+      "authorUsername" to post.authorUsername,
+      "authorAvatar" to post.authorAvatar,
+      "isAuthorVerified" to post.isAuthorVerified,
+      "caption" to post.content,
+      "content" to post.content,
+      "createdAt" to post.timestamp,
+      "timestamp" to post.timestamp,
+      "visibility" to post.audience,
+      "privacy" to post.audience,
+      "audience" to post.audience,
+      "mediaUrls" to mediaList,
+      "mediaUrlsString" to post.mediaUrlsString,
+      "mediaType" to mediaType,
+      "likeCount" to post.likesCount,
+      "likesCount" to post.likesCount,
+      "reactionCount" to post.likesCount,
+      "commentCount" to post.commentsCount,
+      "commentsCount" to post.commentsCount,
+      "shareCount" to post.sharesCount,
+      "sharesCount" to post.sharesCount,
+      "feeling" to (post.feelingOrActivity ?: ""),
+      "feelingOrActivity" to (post.feelingOrActivity ?: ""),
+      "authorType" to post.authorType,
+      "targetGroupId" to (post.targetGroupId ?: ""),
+      "targetGroupName" to (post.targetGroupName ?: ""),
+      "taggedUserIds" to taggedUserIds
+    )
+
+    try {
+      Log.i(TAG, "Writing post ${post.id} to Cloud Firestore path 'posts/${post.id}' for author $authoritativeAuthorId")
+      db.collection("posts").document(post.id).set(postMap).awaitResult()
+      Log.i(TAG, "Successfully committed post ${post.id} to Cloud Firestore.")
+      Result.success(post.copy(authorId = authoritativeAuthorId))
+    } catch (e: Exception) {
+      Log.e(TAG, "Failed to persist post ${post.id} to Firestore path 'posts/${post.id}': ${e.message}", e)
+      Result.failure(e)
     }
   }
 

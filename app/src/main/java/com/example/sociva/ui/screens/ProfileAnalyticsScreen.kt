@@ -124,7 +124,7 @@ fun ProfileAnalyticsScreen(
           ) {
             CircularProgressIndicator(color = SocivaBlue)
             Text(
-              text = "Gathering database analytics...",
+              text = "Loading analytics...",
               style = MaterialTheme.typography.bodyMedium,
               color = MaterialTheme.colorScheme.onSurfaceVariant
             )
