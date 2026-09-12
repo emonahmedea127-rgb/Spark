@@ -7,9 +7,8 @@ import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.util.Log
 import com.example.BuildConfig
-import com.google.firebase.storage.FirebaseStorage
-import com.google.firebase.storage.StorageException
-import com.google.firebase.storage.StorageMetadata
+import com.example.sociva.data.supabase.SupabaseClientProvider
+import io.github.jan.supabase.storage.storage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -161,24 +160,15 @@ class SocivaStorageAdapter(private val context: Context) : MediaStorageAdapter {
 }
 
 /**
- * Storage adapter that uploads photos and videos to Firebase Cloud Storage,
- * enforcing authenticated UID hierarchy and reporting upload progress.
+ * Storage adapter that uploads photos and videos to Supabase Storage,
+ * enforcing bucket hierarchy and reporting upload progress.
  */
-class FirebaseStorageAdapter(
+class SupabaseStorageAdapter(
   private val context: Context,
   private val fallbackAdapter: MediaStorageAdapter = SocivaStorageAdapter(context)
 ) : MediaStorageAdapter {
 
-  private val TAG = "FirebaseStorageAdapter"
-
-  private val storageRef by lazy {
-    try {
-      FirebaseStorage.getInstance().reference
-    } catch (e: Exception) {
-      Log.w(TAG, "FirebaseStorage initialization failed or not configured: ${e.message}")
-      null
-    }
-  }
+  private val TAG = "SupabaseStorageAdapter"
 
   override suspend fun store(
     storagePath: String,
@@ -186,34 +176,29 @@ class FirebaseStorageAdapter(
     mimeType: String,
     onProgress: (Float) -> Unit
   ): Result<String> = withContext(Dispatchers.IO) {
-    val rootRef = storageRef
-    if (rootRef != null) {
+    val client = SupabaseClientProvider.client
+    if (client != null && SupabaseClientProvider.isConfigured()) {
       try {
-        val fileRef = rootRef.child(storagePath)
-        val metadata = StorageMetadata.Builder()
-          .setContentType(mimeType)
-          .build()
-
-        val uploadTask = fileRef.putBytes(bytes, metadata)
-        uploadTask.addOnProgressListener { snapshot ->
-          val total = snapshot.totalByteCount
-          if (total > 0) {
-            val progress = snapshot.bytesTransferred.toFloat() / total.toFloat()
-            onProgress(progress.coerceIn(0f, 1f))
-          }
+        onProgress(0.1f)
+        val bucketName = when {
+          storagePath.startsWith("avatars/") -> "avatars"
+          storagePath.startsWith("covers/") -> "covers"
+          storagePath.startsWith("reels/") -> "reels"
+          else -> "post-media"
         }
-        uploadTask.awaitResult()
-        val downloadUri = fileRef.downloadUrl.awaitResult()
-        return@withContext Result.success(downloadUri.toString())
-      } catch (e: StorageException) {
-        Log.e(TAG, "StorageException during upload to $storagePath: ${e.message}", e)
-        return@withContext Result.failure(mapStorageException(e))
+        val cleanPath = storagePath.substringAfter("/")
+        val bucket = client.storage[bucketName]
+        onProgress(0.5f)
+        bucket.upload(cleanPath, bytes) {
+          upsert = true
+        }
+        val publicUrl = bucket.publicUrl(cleanPath)
+        onProgress(1.0f)
+        return@withContext Result.success(publicUrl)
       } catch (e: Exception) {
-        Log.e(TAG, "Exception during upload to $storagePath: ${e.message}", e)
-        return@withContext Result.failure(mapGeneralException(e))
+        Log.w(TAG, "Supabase storage upload failed, falling back to local storage: ${e.message}")
       }
     }
-    // Only fall back to local storage if FirebaseApp is uninitialized
     fallbackAdapter.store(storagePath, bytes, mimeType, onProgress)
   }
 
@@ -223,43 +208,25 @@ class FirebaseStorageAdapter(
     mimeType: String,
     onProgress: (Float) -> Unit
   ): Result<String> = withContext(Dispatchers.IO) {
-    val rootRef = storageRef
-    if (rootRef != null) {
-      try {
-        val fileRef = rootRef.child(storagePath)
-        val metadata = StorageMetadata.Builder()
-          .setContentType(mimeType)
-          .build()
-
-        val uploadTask = fileRef.putStream(inputStream, metadata)
-        uploadTask.addOnProgressListener { snapshot ->
-          val total = snapshot.totalByteCount
-          if (total > 0) {
-            val progress = snapshot.bytesTransferred.toFloat() / total.toFloat()
-            onProgress(progress.coerceIn(0f, 1f))
-          }
-        }
-        uploadTask.awaitResult()
-        val downloadUri = fileRef.downloadUrl.awaitResult()
-        return@withContext Result.success(downloadUri.toString())
-      } catch (e: StorageException) {
-        Log.e(TAG, "StorageException during stream upload to $storagePath: ${e.message}", e)
-        return@withContext Result.failure(mapStorageException(e))
-      } catch (e: Exception) {
-        Log.e(TAG, "Exception during stream upload to $storagePath: ${e.message}", e)
-        return@withContext Result.failure(mapGeneralException(e))
-      }
+    try {
+      val bytes = inputStream.use { it.readBytes() }
+      store(storagePath, bytes, mimeType, onProgress)
+    } catch (e: Exception) {
+      fallbackAdapter.storeStream(storagePath, inputStream, mimeType, onProgress)
     }
-    fallbackAdapter.storeStream(storagePath, inputStream, mimeType, onProgress)
   }
 
   override suspend fun delete(fileUrl: String): Boolean = withContext(Dispatchers.IO) {
-    if (fileUrl.contains("firebasestorage.googleapis.com")) {
+    val client = SupabaseClientProvider.client
+    if (client != null && SupabaseClientProvider.isConfigured() && fileUrl.contains("/storage/v1/object/public/")) {
       try {
-        FirebaseStorage.getInstance().getReferenceFromUrl(fileUrl).delete().awaitResult()
+        val pathAfterPublic = fileUrl.substringAfter("/storage/v1/object/public/")
+        val bucketName = pathAfterPublic.substringBefore("/")
+        val itemPath = pathAfterPublic.substringAfter("/")
+        client.storage[bucketName].delete(itemPath)
         return@withContext true
       } catch (e: Exception) {
-        Log.w(TAG, "Failed to delete file from Firebase Storage: ${e.message}")
+        Log.w(TAG, "Failed to delete file from Supabase Storage: ${e.message}")
       }
     }
     fallbackAdapter.delete(fileUrl)
@@ -268,41 +235,11 @@ class FirebaseStorageAdapter(
   override fun getUrl(mediaId: String): String {
     return fallbackAdapter.getUrl(mediaId)
   }
-
-  private fun mapStorageException(e: StorageException): Exception {
-    return when (e.errorCode) {
-      StorageException.ERROR_NOT_AUTHORIZED ->
-        SecurityException("Storage permission denied. You can only upload to your own profile or content.")
-      StorageException.ERROR_NOT_AUTHENTICATED ->
-        IllegalStateException("User is not authenticated. Please log in to upload media.")
-      StorageException.ERROR_QUOTA_EXCEEDED ->
-        IllegalStateException("Cloud Storage quota exceeded. Please contact support.")
-      StorageException.ERROR_RETRY_LIMIT_EXCEEDED ->
-        java.io.IOException("Network timed out during media upload. Please check your internet connection and retry.")
-      StorageException.ERROR_OBJECT_NOT_FOUND ->
-        java.io.FileNotFoundException("Target storage file was not found.")
-      StorageException.ERROR_CANCELED ->
-        java.util.concurrent.CancellationException("Upload was cancelled.")
-      else ->
-        Exception(e.localizedMessage ?: "Firebase Cloud Storage upload failed. Please try again.")
-    }
-  }
-
-  private fun mapGeneralException(e: Exception): Exception {
-    val msg = e.localizedMessage?.lowercase(Locale.ROOT) ?: ""
-    return when {
-      e is java.net.UnknownHostException || e is java.net.SocketTimeoutException || msg.contains("network") ->
-        java.io.IOException("No internet connection. Please verify your connection and try again.")
-      msg.contains("not initialized") ->
-        IllegalStateException("Firebase Cloud Storage is currently unavailable.")
-      else -> e
-    }
-  }
 }
 
 class MediaService(
   private val context: Context,
-  private val storageAdapter: MediaStorageAdapter = FirebaseStorageAdapter(context)
+  private val storageAdapter: MediaStorageAdapter = SupabaseStorageAdapter(context)
 ) {
 
   companion object {

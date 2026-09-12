@@ -635,8 +635,7 @@ fun PostComposerScreen(
     // Expose error state when post creation or upload fails
     if (uploadState is UploadState.Error) {
       val err = uploadState as UploadState.Error
-      val userMessage = if (err.message.contains("Firebase", ignoreCase = true) ||
-          err.message.contains("Firestore", ignoreCase = true) ||
+      val userMessage = if (err.message.contains("Supabase", ignoreCase = true) ||
           err.message.contains("PERMISSION_DENIED", ignoreCase = true) ||
           err.message.contains("Exception", ignoreCase = true)) {
         "Couldn't publish your post. Please try again."

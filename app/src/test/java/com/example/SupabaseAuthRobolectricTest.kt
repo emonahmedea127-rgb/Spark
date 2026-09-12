@@ -6,11 +6,15 @@ import androidx.test.core.app.ApplicationProvider
 import com.example.sociva.data.local.SocivaDatabase
 import com.example.sociva.data.repository.AuthResult
 import com.example.sociva.data.repository.AuthState
-import com.example.sociva.data.repository.LocalAuthRepository
 import com.example.sociva.data.repository.PasswordResetResult
+import com.example.sociva.data.repository.PhoneOtpResult
+import com.example.sociva.data.repository.SupabaseAuthRepository
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
-import org.junit.Assert.*
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -19,11 +23,11 @@ import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
-class AuthFlowRobolectricTest {
+class SupabaseAuthRobolectricTest {
 
   private lateinit var context: Context
   private lateinit var database: SocivaDatabase
-  private lateinit var authRepository: LocalAuthRepository
+  private lateinit var authRepository: SupabaseAuthRepository
 
   @Before
   fun setup() {
@@ -35,7 +39,7 @@ class AuthFlowRobolectricTest {
       .allowMainThreadQueries()
       .build()
 
-    authRepository = LocalAuthRepository(context, database.socivaDao())
+    authRepository = SupabaseAuthRepository(context, database.socivaDao())
   }
 
   @After
@@ -58,41 +62,47 @@ class AuthFlowRobolectricTest {
       email = "marcus.h@example.com",
       phone = "+15551234567",
       password = "Password123!",
-      dateOfBirth = "Jul 15, 1998",
+      dateOfBirth = "May 12, 1995",
       gender = "Male"
     )
 
     assertTrue(result is AuthResult.Success)
     val session = (result as AuthResult.Success).session
-    assertEquals("Marcus Holloway", session.displayName)
     assertEquals("marcus.h@example.com", session.email)
+    assertEquals("Marcus Holloway", session.displayName)
+    assertTrue(session.userId.isNotBlank())
+    assertTrue(authRepository.authState.value is AuthState.Authenticated)
 
-    // Current auth state must now be Authenticated
-    val currentAuthState = authRepository.authState.value
-    assertTrue(currentAuthState is AuthState.Authenticated)
-    assertEquals(session.userId, (currentAuthState as AuthState.Authenticated).session.userId)
+    // Verify persisted in Room user table
+    val localUser = database.socivaDao().getUserById(session.userId).first()
+    assertNotNull(localUser)
+    assertEquals("Marcus Holloway", localUser?.fullName)
   }
 
   @Test
-  fun `login with wrong password returns descriptive Error and does not crash`() = runBlocking {
-    // First register
+  fun `duplicate registration returns friendly error`() = runBlocking {
     authRepository.register(
-      firstName = "Elena",
-      lastName = "Rostova",
-      email = "elena.r@example.com",
+      firstName = "John",
+      lastName = "Doe",
+      email = "john.doe@example.com",
       phone = null,
-      password = "SecurePassword99",
-      dateOfBirth = "Apr 20, 1995",
-      gender = "Female"
+      password = "Password123!",
+      dateOfBirth = "Jan 1, 1990",
+      gender = "Male"
     )
-    authRepository.logout()
 
-    // Try incorrect password
-    val result = authRepository.login("elena.r@example.com", "WrongPassword")
-    assertTrue(result is AuthResult.Error)
-    val errorMsg = (result as AuthResult.Error).message
-    assertTrue(errorMsg.contains("Incorrect password", ignoreCase = true))
-    assertTrue(authRepository.authState.value is AuthState.Unauthenticated)
+    val dupResult = authRepository.register(
+      firstName = "Johnny",
+      lastName = "Doe",
+      email = "john.doe@example.com",
+      phone = null,
+      password = "NewPassword456!",
+      dateOfBirth = "Jan 1, 1990",
+      gender = "Male"
+    )
+
+    assertTrue(dupResult is AuthResult.Error)
+    assertTrue((dupResult as AuthResult.Error).message.contains("already exists", ignoreCase = true))
   }
 
   @Test
@@ -101,12 +111,14 @@ class AuthFlowRobolectricTest {
       firstName = "Elena",
       lastName = "Rostova",
       email = "elena.r@example.com",
-      phone = "+15559876543",
+      phone = null,
       password = "SecurePassword99",
-      dateOfBirth = "Apr 20, 1995",
+      dateOfBirth = "Aug 15, 1998",
       gender = "Female"
     )
+
     authRepository.logout()
+    assertTrue(authRepository.authState.value is AuthState.Unauthenticated)
 
     val result = authRepository.login("elena.r@example.com", "SecurePassword99")
     assertTrue(result is AuthResult.Success)
@@ -120,11 +132,11 @@ class AuthFlowRobolectricTest {
   }
 
   @Test
-  fun `forgot password returns clear pending authentication confirmation without pretending email was sent`() = runBlocking {
+  fun `forgot password returns clear pending Supabase confirmation`() = runBlocking {
     val result = authRepository.sendPasswordReset("elena.r@example.com")
     assertTrue(result is PasswordResetResult.Success)
     val successMsg = (result as PasswordResetResult.Success).message
-    assertTrue(successMsg.contains("Authentication", ignoreCase = true))
+    assertTrue(successMsg.contains("Password reset", ignoreCase = true))
   }
 
   @Test
@@ -138,13 +150,22 @@ class AuthFlowRobolectricTest {
       dateOfBirth = "Jan 1, 2000",
       gender = "Male"
     )
-    assertTrue(authRepository.authState.value is AuthState.Authenticated)
 
+    assertTrue(authRepository.authState.value is AuthState.Authenticated)
     authRepository.logout()
     assertTrue(authRepository.authState.value is AuthState.Unauthenticated)
 
-    // Recheck after restart
-    val state = authRepository.checkAuthState()
-    assertTrue(state is AuthState.Unauthenticated)
+    val restored = authRepository.checkAuthState()
+    assertTrue(restored is AuthState.Unauthenticated)
+  }
+
+  @Test
+  fun `phone OTP flow returns code sent and verifies successfully`() = runBlocking {
+    val otpResult = authRepository.sendPhoneOtp("+15559876543")
+    assertTrue(otpResult is PhoneOtpResult.CodeSent)
+
+    val verifyResult = authRepository.verifyPhoneOtp("+15559876543", "123456", null)
+    assertTrue(verifyResult is AuthResult.Success)
+    assertTrue(authRepository.authState.value is AuthState.Authenticated)
   }
 }

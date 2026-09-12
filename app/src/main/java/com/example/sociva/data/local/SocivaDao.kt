@@ -26,7 +26,7 @@ interface SocivaDao {
   @Query("DELETE FROM users WHERE id = 'user_me'")
   suspend fun deleteDemoUser()
 
-  @Query("DELETE FROM friendships WHERE userId = 'user_me' OR friendId = 'user_me'")
+  @Query("DELETE FROM friends WHERE userId = 'user_me' OR friendId = 'user_me'")
   suspend fun deleteDemoFriendships()
 
   @Query("DELETE FROM follows WHERE followerId = 'user_me' OR followingId = 'user_me'")

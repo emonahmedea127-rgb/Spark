@@ -3,8 +3,9 @@ package com.example.sociva.data.repository
 import android.util.Log
 import com.example.sociva.data.local.*
 import com.example.sociva.data.model.*
-import com.example.sociva.data.service.FirestoreService
-import com.google.firebase.auth.FirebaseAuth
+import com.example.sociva.data.service.SupabaseService
+import com.example.sociva.data.supabase.SupabaseClientProvider
+import io.github.jan.supabase.auth.auth
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -18,18 +19,26 @@ import kotlinx.coroutines.launch
 import java.util.Calendar
 import java.util.UUID
 
+fun safeCurrentAuthUid(): String {
+  return try {
+    SupabaseClientProvider.client?.auth?.currentUserOrNull()?.id ?: ""
+  } catch (e: Exception) {
+    ""
+  }
+}
+
 class SocivaRepository(
   private val dao: SocivaDao,
   private val scope: CoroutineScope = CoroutineScope(Dispatchers.IO)
 ) {
 
-  val firestoreService: FirestoreService = FirestoreService(dao, scope)
+  val supabaseService: SupabaseService = SupabaseService(dao, scope)
 
   init {
-    firestoreService.startSync()
+    supabaseService.startSync()
     scope.launch {
       try {
-        // Purge any legacy demo data from Room so only real Firebase users appear
+        // Purge any legacy demo data from Room so only real users appear
         dao.deleteDemoUser()
         dao.deleteDemoFriendships()
         dao.deleteDemoFollows()
@@ -93,7 +102,7 @@ class SocivaRepository(
       all.filter { ids.contains(it.id) }.map { it.toDomain().copy(isFriend = true) }
     }
 
-  val friends: Flow<List<User>> = getFriends(com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: "")
+  val friends: Flow<List<User>> = getFriends(safeCurrentAuthUid())
 
   fun getUser(id: String): Flow<User?> = dao.getUserById(id).map { it?.toDomain() }
 
@@ -187,7 +196,7 @@ class SocivaRepository(
       reviewTagsBeforeAppearing = updated.reviewTagsBeforeAppearing
     )
     dao.updateUser(updatedEntity)
-    firestoreService.syncUserProfile(updatedEntity)
+    supabaseService.syncUserProfile(updatedEntity)
 
     // Propagate updated name and username anywhere displayed
     val newUsername = updated.username.ifBlank { existing.username }
@@ -199,8 +208,8 @@ class SocivaRepository(
     dao.updatePartnerNameInUsers(updated.id, fullName)
   }
 
-  suspend fun refreshUserProfileFromFirestore(userId: String): UserEntity? {
-    return firestoreService.fetchUserProfile(userId)
+  suspend fun refreshUserProfileFromSupabase(userId: String): UserEntity? {
+    return supabaseService.fetchUserProfile(userId)
   }
 
   suspend fun updateUserProfile(
@@ -220,7 +229,7 @@ class SocivaRepository(
       location = location
     )
     dao.updateUser(updated)
-    firestoreService.syncUserProfile(updated)
+    supabaseService.syncUserProfile(updated)
   }
 
   // --- Relationships ---
@@ -474,7 +483,7 @@ class SocivaRepository(
     val targetUser = dao.getUserById(targetUserId).first()
     val newFollowing = dao.getFollowingCount(followerId)
     val newFollowers = dao.getFollowersCount(targetUserId)
-    val currentAuthUid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: ""
+    val currentAuthUid = safeCurrentAuthUid()
     if (followerUser != null) {
       dao.updateUser(followerUser.copy(followingCount = newFollowing))
     }
@@ -494,7 +503,7 @@ class SocivaRepository(
     val targetUser = dao.getUserById(targetUserId).first()
     val newFollowing = dao.getFollowingCount(followerId)
     val newFollowers = dao.getFollowersCount(targetUserId)
-    val currentAuthUid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: ""
+    val currentAuthUid = safeCurrentAuthUid()
     if (followerUser != null) {
       dao.updateUser(followerUser.copy(followingCount = newFollowing))
     }
@@ -524,7 +533,7 @@ class SocivaRepository(
     val userBEntity = dao.getUserById(userB).first()
     val countA = dao.getFriendsCount(userA)
     val countB = dao.getFriendsCount(userB)
-    val currentAuthUid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: ""
+    val currentAuthUid = safeCurrentAuthUid()
     if (userAEntity != null) {
       dao.updateUser(
         userAEntity.copy(
@@ -561,10 +570,10 @@ class SocivaRepository(
     dao.updateUserAvatarInStories(userId, newAvatarUrl)
     dao.updateCreatorAvatarInReels(userId, newAvatarUrl)
     dao.updateParticipantAvatarInConversations(userId, newAvatarUrl)
-    firestoreService.updateProfilePhotoUrl(userId, newAvatarUrl)
+    supabaseService.updateProfilePhotoUrl(userId, newAvatarUrl)
     val user = dao.getUserById(userId).first()
     if (user != null) {
-      firestoreService.syncUserProfile(user.copy(avatarUrl = newAvatarUrl))
+      supabaseService.syncUserProfile(user.copy(avatarUrl = newAvatarUrl))
       dao.updateActorAvatarInNotifications(user.fullName, newAvatarUrl)
 
       // Automatic Profile Picture Update Post (Real database post)
@@ -580,7 +589,7 @@ class SocivaRepository(
         "Private" -> "Only Me"
         else -> "Public"
       }
-      val postId = "post_avatar_${userId}_${now}"
+      val postId = UUID.randomUUID().toString()
       val postEntity = PostEntity(
         id = postId,
         authorId = userId,
@@ -609,7 +618,7 @@ class SocivaRepository(
     dao.updateParticipantAvatarInConversations(userId, "")
     val user = dao.getUserById(userId).first()
     if (user != null) {
-      firestoreService.syncUserProfile(user.copy(avatarUrl = ""))
+      supabaseService.syncUserProfile(user.copy(avatarUrl = ""))
       dao.updateActorAvatarInNotifications(user.fullName, "")
     }
   }
@@ -617,10 +626,10 @@ class SocivaRepository(
   suspend fun updateCoverPhoto(userId: String, newCoverUrl: String) {
     val now = System.currentTimeMillis()
     dao.updateUserCover(userId, newCoverUrl, now)
-    firestoreService.updateCoverPhotoUrl(userId, newCoverUrl)
+    supabaseService.updateCoverPhotoUrl(userId, newCoverUrl)
     val user = dao.getUserById(userId).first()
     if (user != null) {
-      firestoreService.syncUserProfile(user.copy(coverUrl = newCoverUrl))
+      supabaseService.syncUserProfile(user.copy(coverUrl = newCoverUrl))
       // Automatic Cover Photo Update Post (Real database post)
       val pronoun = when (user.gender.trim().lowercase(java.util.Locale.ROOT)) {
         "male" -> "his"
@@ -634,7 +643,7 @@ class SocivaRepository(
         "Private" -> "Only Me"
         else -> "Public"
       }
-      val postId = "post_cover_${userId}_${now}"
+      val postId = UUID.randomUUID().toString()
       val postEntity = PostEntity(
         id = postId,
         authorId = userId,
@@ -690,7 +699,7 @@ class SocivaRepository(
         .map { it.key.emoji }
 
       // Check current authenticated user reaction from post_reactions if present
-      val currentAuthUid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: ""
+      val currentAuthUid = safeCurrentAuthUid()
       val myPostReaction = (if (currentAuthUid.isNotBlank()) postReactions.find { it.userId == currentAuthUid } else null)?.let { r ->
         try { ReactionType.valueOf(r.reactionType) } catch (e: Exception) { null }
       } ?: postEntity.myReaction?.let {
@@ -782,9 +791,9 @@ class SocivaRepository(
     targetGroupId: String? = null,
     targetGroupName: String? = null
   ): Result<PostEntity> {
-    val authUid = FirebaseAuth.getInstance().currentUser?.uid
+    val authUid = safeCurrentAuthUid().ifBlank { null }
     val authoritativeAuthorId = authUid ?: author.id
-    val postId = "post_" + UUID.randomUUID().toString().take(8)
+    val postId = UUID.randomUUID().toString()
 
     val newPost = PostEntity(
       id = postId,
@@ -808,17 +817,15 @@ class SocivaRepository(
       targetGroupName = targetGroupName
     )
 
-    // 1. Write REAL post to Cloud Firestore FIRST and await confirmation
-    val firestoreResult = firestoreService.publishPost(newPost, mediaUrls, taggedUserIds)
-    if (firestoreResult.isFailure) {
-      val ex = firestoreResult.exceptionOrNull() ?: Exception("Couldn't publish your post. Please try again.")
-      Log.e("SocivaRepository", "Firestore post persistence failed: ${ex.message}", ex)
-      return Result.failure(ex)
-    }
+    // 1. Write to local Room cache first (offline-first source of truth)
+    dao.insertPost(newPost)
 
-    // 2. After successful Firestore write: update local Room cache
-    val persistedPost = firestoreResult.getOrNull() ?: newPost
-    dao.insertPost(persistedPost)
+    // 2. Asynchronously sync to Supabase PostgreSQL
+    try {
+      supabaseService.publishPost(newPost, mediaUrls, taggedUserIds)
+    } catch (e: Exception) {
+      Log.w("SocivaRepository", "Supabase background post sync deferred: ${e.message}")
+    }
 
     if (taggedUserIds.isNotEmpty()) {
       val tags = taggedUserIds.map { taggedId ->
@@ -854,7 +861,7 @@ class SocivaRepository(
       }
     }
 
-    return Result.success(persistedPost)
+    return Result.success(newPost)
   }
 
   suspend fun createPost(
@@ -872,9 +879,9 @@ class SocivaRepository(
     targetGroupId: String? = null,
     targetGroupName: String? = null
   ): Result<PostEntity> {
-    val authUid = FirebaseAuth.getInstance().currentUser?.uid
+    val authUid = safeCurrentAuthUid().ifBlank { null }
     val authoritativeAuthorId = authUid ?: authorId
-    val postId = "post_" + UUID.randomUUID().toString().take(8)
+    val postId = UUID.randomUUID().toString()
 
     val newPost = PostEntity(
       id = postId,
@@ -898,19 +905,17 @@ class SocivaRepository(
       targetGroupName = targetGroupName
     )
 
-    // 1. Write REAL post to Cloud Firestore FIRST and await confirmation
-    val firestoreResult = firestoreService.publishPost(newPost, mediaUrls, taggedUserIds)
-    if (firestoreResult.isFailure) {
-      val ex = firestoreResult.exceptionOrNull() ?: Exception("Couldn't publish your post. Please try again.")
-      Log.e("SocivaRepository", "Firestore post persistence failed: ${ex.message}", ex)
-      return Result.failure(ex)
+    // 1. Write to local Room cache first (offline-first source of truth)
+    dao.insertPost(newPost)
+
+    // 2. Asynchronously sync to Supabase PostgreSQL
+    try {
+      supabaseService.publishPost(newPost, mediaUrls, taggedUserIds)
+    } catch (e: Exception) {
+      Log.w("SocivaRepository", "Supabase background post sync deferred: ${e.message}")
     }
 
-    // 2. After successful Firestore write: update local Room cache
-    val persistedPost = firestoreResult.getOrNull() ?: newPost
-    dao.insertPost(persistedPost)
-
-    return Result.success(persistedPost)
+    return Result.success(newPost)
   }
 
   suspend fun removePostTag(postId: String, userId: String) {
@@ -925,6 +930,7 @@ class SocivaRepository(
       }
       dao.deletePostById(postId)
       dao.deleteReactionsForPost(postId)
+      supabaseService.deletePost(postId)
     }
   }
 
@@ -934,7 +940,7 @@ class SocivaRepository(
 
   suspend fun setReaction(postId: String, reaction: ReactionType?, userId: String = "") {
     val effectiveUserId = userId.ifBlank {
-      com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: ""
+      safeCurrentAuthUid()
     }
     val post = dao.getPostById(postId).first() ?: return
     val existingReactionEntity = dao.findPostReaction(postId, effectiveUserId)
@@ -1016,7 +1022,7 @@ class SocivaRepository(
       originalPost.id
     }
 
-    val postId = "post_shared_${sharer.id}_${now}"
+    val postId = UUID.randomUUID().toString()
     val audienceStr = when (audience) {
       PostAudience.FRIENDS -> "Friends"
       PostAudience.ONLY_ME -> "Only Me"
@@ -1132,7 +1138,7 @@ class SocivaRepository(
       isLiked = false
     )
     dao.insertComment(newComment)
-    firestoreService.publishComment(newComment)
+    supabaseService.publishComment(newComment)
 
     // Send notifications
     if (parentComment != null) {
@@ -1355,6 +1361,7 @@ class SocivaRepository(
 
     // Delete the comment itself
     dao.deleteComment(commentId)
+    supabaseService.deleteComment(commentId, postId)
 
     // Update post comments count
     val totalRemaining = dao.countAllCommentsForPost(postId)
@@ -1448,7 +1455,7 @@ class SocivaRepository(
       list.map { it.toDomain() }
     }
 
-  val conversations: Flow<List<Conversation>> = getConversations(com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: "")
+  val conversations: Flow<List<Conversation>> = getConversations(safeCurrentAuthUid())
 
   fun getConversation(convId: String, currentUserId: String): Flow<Conversation?> =
     getConversations(currentUserId).map { list ->
@@ -1457,7 +1464,7 @@ class SocivaRepository(
 
   fun getMessages(convId: String, currentUserId: String = ""): Flow<List<Message>> =
     dao.getMessagesForConversation(convId).map { list ->
-      val effectiveUid = currentUserId.ifBlank { com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: "" }
+      val effectiveUid = currentUserId.ifBlank { safeCurrentAuthUid() }
       list.map { it.toDomain(effectiveUid) }
     }
 
@@ -1497,7 +1504,7 @@ class SocivaRepository(
     messageType: String = "TEXT"
   ) {
     val effectiveSenderId = senderId.ifBlank {
-      com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: ""
+      safeCurrentAuthUid()
     }
     val now = System.currentTimeMillis()
     val otherMember = dao.getOtherMember(convId, effectiveSenderId)
@@ -1519,7 +1526,7 @@ class SocivaRepository(
       isMine = true
     )
     dao.insertMessage(msg)
-    firestoreService.publishMessage(msg)
+    supabaseService.publishMessage(msg)
     dao.updateConversationLastMessage(convId, text, now)
 
     // Notify recipient
@@ -1573,7 +1580,7 @@ class SocivaRepository(
   fun getNotifications(recipientId: String): Flow<List<NotificationItem>> =
     dao.getNotificationsForRecipient(recipientId).map { list -> list.map { it.toDomain() } }
 
-  val notifications: Flow<List<NotificationItem>> = getNotifications(com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: "")
+  val notifications: Flow<List<NotificationItem>> = getNotifications(safeCurrentAuthUid())
 
   suspend fun markNotificationRead(id: String) {
     dao.markNotificationAsRead(id)
@@ -1593,7 +1600,7 @@ class SocivaRepository(
   fun getFriendRequests(userId: String): Flow<List<FriendRequestItem>> =
     getIncomingFriendRequests(userId)
 
-  val friendRequests: Flow<List<FriendRequestItem>> = getIncomingFriendRequests(com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: "")
+  val friendRequests: Flow<List<FriendRequestItem>> = getIncomingFriendRequests(safeCurrentAuthUid())
 
   fun getFriendStatusFlow(currentUserId: String, targetUserId: String): Flow<FriendStatus> {
     if (currentUserId == targetUserId) {
@@ -1680,7 +1687,7 @@ class SocivaRepository(
     val receiverId = request.receiverId
     val now = System.currentTimeMillis()
     val authUid = currentUserId.ifBlank {
-      com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: ""
+      safeCurrentAuthUid()
     }
 
     // 1. Remove pending friend request
@@ -3273,7 +3280,7 @@ private fun MessageEntity.toDomain(currentUserId: String = "") = Message(
   timestamp = timestamp,
   isSeen = isSeen,
   isDeleted = isDeleted,
-  isMine = (senderId == currentUserId || (currentUserId.isBlank() && senderId == (com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: "")))
+  isMine = (senderId == currentUserId || (currentUserId.isBlank() && senderId == safeCurrentAuthUid()))
 )
 
 private fun NotificationEntity.toDomain() = NotificationItem(

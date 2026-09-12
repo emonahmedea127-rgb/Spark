@@ -134,7 +134,11 @@ fun SocivaApp(
       return
     }
     SocivaScreen.PROFILE -> {
-      val authUid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: ""
+      val authUid = try {
+        com.example.sociva.data.supabase.SupabaseClientProvider.client?.pluginManager?.getPluginOrNull(io.github.jan.supabase.auth.Auth)?.currentUserOrNull()?.id ?: ""
+      } catch (e: Exception) {
+        ""
+      }
       val profileTargetId = if (activeProfileUserId.isNullOrBlank() || activeProfileUserId == "user_me") {
         authUid.ifBlank { currentUser?.id ?: viewModel.currentUserId.value }
       } else {

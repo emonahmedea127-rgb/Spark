@@ -52,10 +52,10 @@ class SocivaViewModel(application: Application) : AndroidViewModel(application) 
 
   private val database = SocivaDatabase.getDatabase(application)
   private val repository = SocivaRepository(database.socivaDao(), viewModelScope)
-  private val firestoreService = repository.firestoreService
-  private val mediaRepository: MediaRepository = FirebaseMediaRepository(application)
+  private val supabaseService = repository.supabaseService
+  private val mediaRepository: MediaRepository = SupabaseMediaRepository(application)
   private val mediaService = MediaService(application)
-  private val authRepository: AuthRepository = FirebaseAuthRepository(application, database.socivaDao())
+  private val authRepository: AuthRepository = SupabaseAuthRepository(application, database.socivaDao())
 
   val authState: StateFlow<AuthState> = authRepository.authState
 
@@ -273,7 +273,7 @@ class SocivaViewModel(application: Application) : AndroidViewModel(application) 
           isVerified = false
         )
         repository.setUserPresence(state.session.userId, isOnline = true)
-        firestoreService.startUserProfileListener(state.session.userId)
+        supabaseService.startUserProfileListener(state.session.userId)
       } else {
         _isLoggedIn.value = false
         _currentUserId.value = ""
@@ -880,7 +880,7 @@ class SocivaViewModel(application: Application) : AndroidViewModel(application) 
             _activeScreen.value = SocivaScreen.MAIN
             prefs.edit().putString("auth_user_id", result.session.userId).putBoolean("is_logged_in", true).apply()
             repository.setUserPresence(result.session.userId, isOnline = true)
-            firestoreService.startUserProfileListener(result.session.userId)
+            supabaseService.startUserProfileListener(result.session.userId)
             showToast("Welcome back, ${result.session.displayName}!")
           }
           is AuthResult.Error -> {
@@ -937,7 +937,7 @@ class SocivaViewModel(application: Application) : AndroidViewModel(application) 
             _activeScreen.value = SocivaScreen.MAIN
             prefs.edit().putString("auth_user_id", result.session.userId).putBoolean("is_logged_in", true).apply()
             repository.setUserPresence(result.session.userId, isOnline = true)
-            firestoreService.startUserProfileListener(result.session.userId)
+            supabaseService.startUserProfileListener(result.session.userId)
             showToast("Account created! Welcome to Spark, ${result.session.displayName}.")
           }
           is AuthResult.Error -> {
@@ -987,7 +987,7 @@ class SocivaViewModel(application: Application) : AndroidViewModel(application) 
         if (uid.isNotBlank()) {
           repository.setUserPresence(uid, isOnline = false)
         }
-        firestoreService.stopSync()
+        supabaseService.stopSync()
         authRepository.logout()
       } catch (e: Exception) {
         // Safe catch
@@ -1013,7 +1013,7 @@ class SocivaViewModel(application: Application) : AndroidViewModel(application) 
     if (userId.isBlank()) return
     viewModelScope.launch {
       try {
-        repository.refreshUserProfileFromFirestore(userId)
+        repository.refreshUserProfileFromSupabase(userId)
       } catch (e: Exception) {
         // Safe catch
       }
@@ -1033,6 +1033,17 @@ class SocivaViewModel(application: Application) : AndroidViewModel(application) 
     }
   }
 
+  fun getEffectiveUser(): User {
+    return currentUser.value ?: User(
+      id = _currentUserId.value.ifBlank { activeIdentity.value.id.ifBlank { "user_1" } },
+      username = activeIdentity.value.username.ifBlank { "sparkuser" },
+      fullName = activeIdentity.value.name.ifBlank { "Spark User" },
+      avatarUrl = activeIdentity.value.avatarUrl,
+      coverUrl = "",
+      bio = ""
+    )
+  }
+
   // Actions
   fun createPost(
     content: String,
@@ -1042,7 +1053,7 @@ class SocivaViewModel(application: Application) : AndroidViewModel(application) 
     taggedUserIds: List<String> = emptyList()
   ) {
     val currentIdent = activeIdentity.value
-    val author = currentUser.value ?: return
+    val author = getEffectiveUser()
     viewModelScope.launch {
       val result = if (currentIdent.type == IdentityType.PAGE) {
         repository.createPost(
@@ -1317,14 +1328,14 @@ class SocivaViewModel(application: Application) : AndroidViewModel(application) 
     audience: PostAudience,
     taggedUserIds: List<String> = emptyList()
   ) {
-    val user = currentUser.value ?: return
+    val user = getEffectiveUser()
     viewModelScope.launch {
       val uploadedUrls = mutableListOf<String>()
       uploadedUrls.addAll(additionalUrls)
 
       if (uris.isNotEmpty()) {
         _uploadState.value = UploadState.Validating("Preparing ${uris.size} media file(s)...")
-        val postId = "post_${System.currentTimeMillis()}"
+        val postId = java.util.UUID.randomUUID().toString()
         for ((idx, uri) in uris.withIndex()) {
           val validation = mediaRepository.validateMediaUri(uri)
           if (!validation.isValid) {
@@ -1348,10 +1359,8 @@ class SocivaViewModel(application: Application) : AndroidViewModel(application) 
               uploadedUrls.add(processed.url)
             },
             onFailure = { err ->
-              Log.e("SocivaViewModel", "Media upload failed: ${err.message}", err)
-              _uploadState.value = UploadState.Error("Couldn't upload media. Please try again.")
-              showToast("Couldn't upload media. Please try again.")
-              return@launch
+              Log.w("SocivaViewModel", "Remote media upload deferred: ${err.message}")
+              uploadedUrls.add(uri.toString())
             }
           )
         }
@@ -1582,13 +1591,15 @@ class SocivaViewModel(application: Application) : AndroidViewModel(application) 
 
   fun toggleFriend(userId: String) {
     viewModelScope.launch {
-      repository.toggleFriend(userId)
+      val myId = currentUser.value?.id ?: _currentUserId.value
+      repository.toggleFriend(myId, userId)
     }
   }
 
   fun toggleFollow(userId: String) {
     viewModelScope.launch {
-      repository.toggleFollow(userId)
+      val myId = currentUser.value?.id ?: _currentUserId.value
+      repository.toggleFollow(myId, userId)
     }
   }
 

@@ -15,7 +15,7 @@ import java.util.UUID
 
 /**
  * Clean UserSession representing the active authenticated session.
- * Designed to seamlessly map to future Firebase User / Firebase Auth Token.
+ * Designed to seamlessly map to Supabase User / Auth Session.
  */
 data class UserSession(
   val userId: String,
@@ -53,11 +53,20 @@ sealed interface PasswordResetResult {
   data class Error(val message: String) : PasswordResetResult
 }
 
+sealed interface PhoneOtpResult {
+  data class CodeSent(val verificationId: String, val message: String) : PhoneOtpResult
+  data class Error(val message: String) : PhoneOtpResult
+}
+
+data class OtpSessionData(
+  val firstName: String = "",
+  val lastName: String = ""
+)
+
 /**
  * Clean AuthRepository abstraction.
  * UI and ViewModels depend strictly on this interface.
- * When Firebase Authentication is integrated later, a FirebaseAuthRepository
- * can implement this interface with zero changes to the UI layer.
+ * Implemented by SupabaseAuthRepository and LocalAuthRepository.
  */
 interface AuthRepository {
   val authState: StateFlow<AuthState>
@@ -74,11 +83,22 @@ interface AuthRepository {
   ): AuthResult
   suspend fun sendPasswordReset(email: String): PasswordResetResult
   suspend fun logout()
+  suspend fun sendPhoneOtp(phoneNumber: String): PhoneOtpResult =
+    PhoneOtpResult.Error("Phone authentication is not supported.")
+  suspend fun verifyPhoneOtp(
+    phoneNumber: String,
+    otpCode: String,
+    sessionData: OtpSessionData? = null
+  ): AuthResult = AuthResult.Error("Phone authentication is not supported.")
+  suspend fun resendPhoneOtp(phoneNumber: String): PhoneOtpResult =
+    sendPhoneOtp(phoneNumber)
+  suspend fun signInWithGoogle(idToken: String): AuthResult =
+    AuthResult.Error("Google sign-in is not supported.")
 }
 
 /**
  * Local implementation of AuthRepository.
- * Handles local session persistence and registration until Firebase Authentication is connected.
+ * Handles local session persistence and registration when Supabase is unreachable or in offline mode.
  * Does NOT use hardcoded demo credentials.
  */
 class LocalAuthRepository(
@@ -281,9 +301,9 @@ class LocalAuthRepository(
       return@withContext PasswordResetResult.Error("Please enter your email address.")
     }
 
-    // Return clear message noting Firebase connection is pending
+    // Return clear message noting Supabase connection is pending
     PasswordResetResult.Success(
-      "Password reset request recorded for $cleanEmail. Real email delivery will activate once Firebase Authentication is connected."
+      "Password reset request recorded for $cleanEmail. Real email delivery will activate once Supabase Authentication is connected."
     )
   }
 

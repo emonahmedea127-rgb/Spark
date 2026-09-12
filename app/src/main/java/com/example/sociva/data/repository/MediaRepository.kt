@@ -8,7 +8,7 @@ import com.example.sociva.data.service.ValidationResult
 
 /**
  * Reusable repository interface for media validation, uploading, and management
- * using Firebase Cloud Storage.
+ * using Supabase Storage.
  */
 interface MediaRepository {
   /**
@@ -22,7 +22,7 @@ interface MediaRepository {
   fun validateBitmap(bitmap: Bitmap, type: MediaType): ValidationResult
 
   /**
-   * Uploads user profile photo to Firebase Cloud Storage under users/{uid}/profile/avatar...
+   * Uploads user profile photo to Supabase Storage under avatars bucket.
    */
   suspend fun uploadProfilePhoto(
     userId: String,
@@ -31,7 +31,7 @@ interface MediaRepository {
   ): Result<String>
 
   /**
-   * Uploads user cover photo to Firebase Cloud Storage under users/{uid}/profile/cover...
+   * Uploads user cover photo to Supabase Storage under covers bucket.
    */
   suspend fun uploadCoverPhoto(
     userId: String,
@@ -40,7 +40,7 @@ interface MediaRepository {
   ): Result<String>
 
   /**
-   * Uploads post media (image or video) to Firebase Cloud Storage under users/{uid}/posts/{postId}/...
+   * Uploads post media (image or video) to Supabase Storage under post-media bucket.
    */
   suspend fun uploadPostMedia(
     userId: String,
@@ -50,7 +50,7 @@ interface MediaRepository {
   ): Result<ProcessedMedia>
 
   /**
-   * Uploads story media (image or video) to Firebase Cloud Storage under users/{uid}/stories/{storyId}/...
+   * Uploads story media (image or video) to Supabase Storage under post-media bucket.
    */
   suspend fun uploadStoryMedia(
     userId: String,
@@ -71,7 +71,7 @@ interface MediaRepository {
   ): Result<ProcessedMedia>
 
   /**
-   * Deletes a media file from Firebase Cloud Storage.
+   * Deletes a media file from Supabase Storage.
    */
   suspend fun deleteMedia(fileUrl: String): Boolean
 }
