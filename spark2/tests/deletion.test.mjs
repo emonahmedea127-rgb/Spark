@@ -36,12 +36,13 @@ test('fresh password identity must match authenticated identity',async()=>{
   const calls=fakeFetch([user,{body:{user:{id:'different-user'},access_token:'test'}}]);assert.equal((await handler(request())).status,403);assert.equal(calls.length,2);
 });
 test('deletion hides data, revokes sessions, removes physical media, then deletes Auth user',async()=>{
-  const calls=fakeFetch([user,verified,{}, {}, {body:[{name:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.jpg'}]}, {}, {body:[]}, {body:[]}, {}]);
+  const calls=fakeFetch([user,verified,{}, {}, {body:[{name:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.jpg'}]}, {}, {body:[]}, {body:[]}, {body:[]}, {body:[{name:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb.mp4'}]}, {}, {body:[]}, {}]);
   assert.equal((await handler(request())).status,200);
   assert.ok(calls[2].url.includes('rest/v1/profiles'));assert.ok(calls[3].url.includes('/logout?scope=global'));
   assert.equal(calls[5].init.method,'DELETE');assert.ok(calls[5].url.endsWith('storage/v1/object/spark-media'));
   assert.ok(calls.at(-1).url.endsWith(`auth/v1/admin/users/${uid}`));
   assert.deepEqual(JSON.parse(calls[5].init.body).prefixes,[`${uid}/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.jpg`]);
+  assert.ok(calls.some(c=>c.url.endsWith('storage/v1/object/spark-chat') && c.init.method==='DELETE'));
 });
 test('storage failure never reports completed account deletion',async()=>{
   const calls=fakeFetch([user,verified,{}, {}, {status:503}]);

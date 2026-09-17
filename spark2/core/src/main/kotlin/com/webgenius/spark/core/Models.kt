@@ -31,7 +31,8 @@ import java.util.Base64
     @SerialName("like_count") val likeCount: Int = 0,
     @SerialName("comment_count") val commentCount: Int = 0,
     val liked: Boolean = false,
-    val saved: Boolean = false
+    val saved: Boolean = false,
+    @SerialName("media_kind") val mediaKind: String = "photo"
 )
 @Serializable data class Comment(
     val id: String,

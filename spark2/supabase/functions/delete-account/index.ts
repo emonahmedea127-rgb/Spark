@@ -45,7 +45,7 @@ Deno.serve(async (request) => {
 
     // Delete physical Storage objects through Storage API, NEVER SQL-delete
     // storage.objects metadata (which would leave the actual bytes behind).
-    for (const bucket of ["spark-media", "spark-avatars"]) {
+    for (const bucket of ["spark-media", "spark-avatars", "spark-videos", "spark-chat"]) {
       let complete = false;
       for (let batch = 0; batch < 20; batch++) {
         const listed = await admin(`storage/v1/object/list/${bucket}`, "POST", {
@@ -53,7 +53,7 @@ Deno.serve(async (request) => {
         });
         const objects: Array<{ name: string }> = await listed.json();
         if (objects.length === 0) { complete = true; break; }
-        if (objects.some((object) => !/^[a-f0-9-]{36}\.jpg$/.test(object.name))) throw new Error("Unexpected storage path. Ask the project administrator to complete cleanup.");
+        if (objects.some((object) => !/^[a-f0-9-]{36}\.(jpg|mp4)$/.test(object.name))) throw new Error("Unexpected storage path. Ask the project administrator to complete cleanup.");
         await admin(`storage/v1/object/${bucket}`, "DELETE", { prefixes: objects.map((object) => `${user.id}/${object.name}`) });
       }
       if (!complete) return jsonResponse(503, "Cleanup is in progress. Retry deletion to process the remaining photos.");

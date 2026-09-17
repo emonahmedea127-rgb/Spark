@@ -26,7 +26,7 @@ class SparkApi(
         .callTimeout(45, TimeUnit.SECONDS).build(),
     private val clock: () -> Long = { Instant.now().epochSecond }
 ) {
-    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+    internal val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     private val refreshLock = Mutex()
     private val _session = MutableStateFlow(runCatching {
         store.read("session")?.let { json.decodeFromString<Session>(it) }
@@ -50,7 +50,7 @@ class SparkApi(
             mapOf("grant_type" to "refresh_token")))
     } catch (e: ApiException) { if (e.status == 400 || e.status == 401) save(null); throw e }
 
-    private suspend fun request(method: String, path: String, body: JsonElement? = null,
+    internal suspend fun request(method: String, path: String, body: JsonElement? = null,
         query: Map<String, String> = emptyMap(), prefer: String? = null): JsonElement {
         val token = accessToken()
         return try { raw(method, path, body, query, token, prefer) }
@@ -63,12 +63,12 @@ class SparkApi(
             raw(method, path, body, query, renewed, prefer)
         }
     }
-    private suspend fun raw(method: String, path: String, body: JsonElement? = null,
+    internal suspend fun raw(method: String, path: String, body: JsonElement? = null,
         query: Map<String, String> = emptyMap(), token: String? = null, prefer: String? = null,
-        bytes: ByteArray? = null): JsonElement {
+        bytes: ByteArray? = null, mime: String = "image/jpeg"): JsonElement {
         val url = (config.url.trimEnd('/') + "/" + path).toHttpUrl().newBuilder()
         query.forEach { (key, value) -> url.addQueryParameter(key, value) }
-        val payload = if (bytes != null) bytes.toRequestBody("image/jpeg".toMediaType())
+        val payload = if (bytes != null) bytes.toRequestBody(mime.toMediaType())
             else body?.toString()?.toRequestBody("application/json".toMediaType())
             ?: if (method in listOf("POST", "PUT", "PATCH")) "{}".toRequestBody("application/json".toMediaType()) else null
         val builder = Request.Builder().url(url.build()).method(method, payload)
@@ -156,16 +156,18 @@ class SparkApi(
         val response = request("PATCH", "rest/v1/profiles", data, mapOf("id" to "eq.$userId"), "return=representation")
         return json.decodeFromJsonElement<List<Profile>>(response).firstOrNull() ?: error("Profile could not be updated.")
     }
-    suspend fun feed(cursor: FeedCursor? = null, author: String? = null, savedOnly: Boolean = false): List<Post> {
+    suspend fun feed(cursor: FeedCursor? = null, author: String? = null, savedOnly: Boolean = false, videosOnly: Boolean = false): List<Post> {
         val query = mutableMapOf("select" to "*", "order" to "created_at.desc,id.desc", "limit" to Rules.PAGE_SIZE.toString())
         author?.let { query["author_id"] = "eq.$it" }
         if (savedOnly) query["saved"] = "eq.true"
+        if (videosOnly) query["media_kind"] = "eq.video"
         cursor?.let { query["or"] = "(created_at.lt.${it.createdAt},and(created_at.eq.${it.createdAt},id.lt.${it.id}))" }
         return json.decodeFromJsonElement(request("GET", "rest/v1/spark_feed", query = query))
     }
     fun mediaUrl(bucket: String, path: String): String {
-        require(bucket in listOf("spark-media", "spark-avatars"))
-        require(Regex("[a-f0-9-]{36}/[a-f0-9-]{36}\\.jpg").matches(path))
+        require(bucket in listOf("spark-media", "spark-avatars", "spark-videos", "spark-chat"))
+        require(Regex("[a-f0-9-]{36}/[a-f0-9-]{36}\\.(jpg|mp4)").matches(path))
+        require(bucket !in listOf("spark-media", "spark-avatars") || path.endsWith(".jpg"))
         return "${config.url}/storage/v1/object/authenticated/$bucket/$path"
     }
     private suspend fun upload(bucket: String, path: String, bytes: ByteArray) {
@@ -189,7 +191,7 @@ class SparkApi(
     suspend fun deletePost(post: Post): Boolean {
         require(post.authorId == userId)
         request("DELETE", "rest/v1/posts", query = mapOf("id" to "eq.${post.id}"))
-        return runCatching { removeObject("spark-media", post.imagePath) }.isSuccess
+        return runCatching { removeObject(if (post.mediaKind == "video") "spark-videos" else "spark-media", post.imagePath) }.isSuccess
     }
     suspend fun removeObject(bucket: String, path: String) {
         mediaUrl(bucket, path) // Validate the path before sending it.

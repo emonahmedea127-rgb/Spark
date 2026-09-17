@@ -14,7 +14,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
-enum class Tab { FEED, DISCOVER, CREATE, REQUESTS, PROFILE }
+enum class Tab { FEED, DISCOVER, CREATE, REQUESTS, PROFILE, REELS, CHATS, ACTIVITY }
 data class AppState(
     val busy: Boolean = false, val booting: Boolean = false, val me: Profile? = null,
     val message: String? = null, val tab: Tab = Tab.FEED, val feed: List<Post> = emptyList(),
@@ -23,7 +23,16 @@ data class AppState(
     val profilePosts: List<Post> = emptyList(), val profileMore: Boolean = true,
     val relationship: Follow? = null, val commentPost: Post? = null,
     val comments: List<Comment> = emptyList(), val savedOnly: Boolean = false,
-    val settings: Boolean = false, val blocked: List<String> = emptyList(), val resetPassword: Boolean = false
+    val settings: Boolean = false, val blocked: List<String> = emptyList(), val resetPassword: Boolean = false,
+    val friendships: List<Friendship> = emptyList(), val friendPeople: List<Profile> = emptyList(),
+    val totals: ProfileTotals = ProfileTotals(), val preferences: Preferences = Preferences(), val visits: List<Visit> = emptyList(),
+    val reels: List<Post> = emptyList(), val reelsMore: Boolean = true,
+    val chat: Conversation? = null, val chatPeer: Profile? = null, val messages: List<ChatMessage> = emptyList(),
+    val chatMore: Boolean = false, val sharedPost: Post? = null,
+    val connectionTitle: String? = null, val connectionPeople: List<Profile> = emptyList(),
+    val call: CallSession? = null, val incoming: CallSession? = null, val callStatus: String = "",
+    val socialNotice: Int = 0, val socialReady: Boolean = false,
+    val socialStatus: String = "Social features are waiting for the server update."
 )
 class SparkViewModel(application: Application) : AndroidViewModel(application) {
     private val app get() = getApplication<SparkApplication>()
@@ -33,6 +42,10 @@ class SparkViewModel(application: Application) : AndroidViewModel(application) {
     private var searchJob: Job? = null
     private var sessionJob: Job? = null
     private var refreshJob: Job? = null
+    private var socialJob: Job? = null
+    private var foreground = false
+    var callEngine by mutableStateOf<CallEngine?>(null); private set
+    private var answered = false
     init { watchSession(); if (api?.session?.value != null) act { enter() } }
     private fun client() = requireNotNull(api) { "Connect your Supabase project first." }
     private fun watchSession() {
@@ -40,7 +53,7 @@ class SparkViewModel(application: Application) : AndroidViewModel(application) {
         val current = api ?: return
         sessionJob = viewModelScope.launch {
             current.session.collectLatest { session ->
-                if (session == null && state.me != null) { searchJob?.cancel(); state = AppState(message = "Signed out.") }
+                if (session == null && state.me != null) { searchJob?.cancel(); callEngine?.close(); callEngine=null; answered=false; state = AppState(message = "Signed out.") }
             }
         }
         refreshJob = viewModelScope.launch {
@@ -93,6 +106,7 @@ class SparkViewModel(application: Application) : AndroidViewModel(application) {
         state = state.copy(me = me, resetPassword = client().resetReady())
         if (me.deletingAt != null) { state = state.copy(settings = true, message = "Account deletion is pending. Retry it in settings."); return }
         state = state.copy(feed = client().feed(), more = true)
+        checkSocial()
     }
     fun refresh() = act { val posts = client().feed(); state = state.copy(feed = posts, more = posts.size == Rules.PAGE_SIZE) }
     fun moreFeed() = act {
@@ -102,8 +116,14 @@ class SparkViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun tab(tab: Tab) {
         if (state.busy) return
-        state = state.copy(tab = tab, profile = null, settings = false, savedOnly = false)
-        when (tab) { Tab.PROFILE -> state.me?.let(::openProfile); Tab.REQUESTS -> loadRequests(); else -> Unit }
+        state = state.copy(tab = tab, profile = null, settings = false, savedOnly = false, chat = null, chatPeer = null, connectionTitle = null)
+        when (tab) {
+            Tab.PROFILE -> state.me?.let(::openProfile)
+            Tab.REQUESTS -> loadRequests()
+            Tab.REELS -> loadReels()
+            Tab.CHATS, Tab.ACTIVITY -> refreshSocial()
+            else -> Unit
+        }
     }
     fun search(term: String) {
         searchJob?.cancel()
@@ -121,8 +141,13 @@ class SparkViewModel(application: Application) : AndroidViewModel(application) {
         client().createPost(preparePhoto(app, uri), caption)
         state = state.copy(tab = Tab.FEED, feed = client().feed(), more = true, message = "Your moment is posted.")
     }
+    fun publishVideo(uri: Uri, caption: String) = act {
+        requireSocial()
+        client().createVideo(prepareVideo(app,uri),caption)
+        state=state.copy(tab=Tab.REELS,reels=client().feed(videosOnly=true),message="Your reel is posted.")
+    }
     private fun changePost(post: Post) {
-        state = state.copy(feed = state.feed.map { if (it.id == post.id) post else it }, profilePosts = state.profilePosts.map { if (it.id == post.id) post else it })
+        state = state.copy(feed = state.feed.map { if (it.id == post.id) post else it }, profilePosts = state.profilePosts.map { if (it.id == post.id) post else it }, reels=state.reels.map { if(it.id==post.id) post else it })
     }
     fun like(post: Post) = act { client().like(post); changePost(post.copy(liked = !post.liked, likeCount = (post.likeCount + if (post.liked) -1 else 1).coerceAtLeast(0))) }
     fun save(post: Post) = act { client().savePost(post); changePost(post.copy(saved = !post.saved)); if (state.savedOnly && post.saved) state = state.copy(profilePosts = state.profilePosts.filterNot { it.id == post.id }) }
@@ -150,9 +175,11 @@ class SparkViewModel(application: Application) : AndroidViewModel(application) {
         state = state.copy(profile = actual, profilePosts = emptyList(), relationship = null, savedOnly = false)
         val posts = client().feed(author = profile.id)
         val relation = if (profile.id == client().userId) null else client().relationship(profile.id)
-        state = state.copy(profilePosts = posts, profileMore = posts.size == Rules.PAGE_SIZE, relationship = relation)
+        state = state.copy(profilePosts = posts, profileMore = posts.size == Rules.PAGE_SIZE, relationship = relation,
+            totals=if(state.socialReady) client().profileTotals(profile.id) else ProfileTotals())
+        if(state.socialReady && profile.id!=client().userId) client().recordVisit(profile.id)
     }
-    fun back() { state = state.copy(profile = null, settings = false, savedOnly = false); if (state.tab == Tab.PROFILE) state = state.copy(tab = Tab.FEED) }
+    fun back() { state = state.copy(profile = null, settings = false, savedOnly = false, chat=null,chatPeer=null,connectionTitle=null); if (state.tab == Tab.PROFILE) state = state.copy(tab = Tab.FEED) }
     fun saved(value: Boolean) = act {
         val posts = client().feed(author = if (value) null else client().userId, savedOnly = value)
         state = state.copy(savedOnly = value, profilePosts = posts, profileMore = posts.size == Rules.PAGE_SIZE)
@@ -166,10 +193,11 @@ class SparkViewModel(application: Application) : AndroidViewModel(application) {
         val profile = state.profile ?: return@act
         client().follow(profile.id, state.relationship)
         val relation = client().relationship(profile.id)
-        state = state.copy(relationship = relation, profilePosts = client().feed(author = profile.id), feed = client().feed())
+        state = state.copy(relationship = relation, profilePosts = client().feed(author = profile.id), feed = client().feed(),totals=if(state.socialReady) client().profileTotals(profile.id) else ProfileTotals())
     }
     fun loadRequests() = act { requests() }
     private suspend fun requests() {
+        loadSocial()
         val ids = client().follows(true).filter { it.status == "pending" }.map { it.followerId }.take(40)
         state = state.copy(requests = if (ids.isEmpty()) emptyList() else client().profiles(mapOf("id" to "in.(${ids.joinToString(",")})")))
     }
@@ -190,7 +218,7 @@ class SparkViewModel(application: Application) : AndroidViewModel(application) {
         if (newPath != null && oldPath != null) try { client().removeObject("spark-avatars", oldPath) } catch (_: Exception) { /* Orphan audit covers interrupted cleanup. */ }
     }
     fun unblock(id: String) = act { client().unblock(id); state = state.copy(blocked = client().blockedIds()) }
-    fun logout() = act { searchJob?.cancel(); try { client().logout() } finally { state = AppState() } }
+    fun logout() = act { searchJob?.cancel(); endCall(); try { client().logout() } finally { state = AppState() } }
     fun deleteAccount(password: String) = act {
         try {
             client().deleteAccount(password)
@@ -202,4 +230,139 @@ class SparkViewModel(application: Application) : AndroidViewModel(application) {
             throw e
         }
     }
+    private fun requireSocial() { check(state.socialReady) { state.socialStatus } }
+    private suspend fun checkSocial() {
+        try {
+            val preferences=client().preferences()
+            state=state.copy(preferences=preferences,socialReady=true)
+            loadSocial()
+        } catch(e: Exception) {
+            if(e is CancellationException) throw e
+            val missing=e is ApiException && e.code in setOf("PGRST205","PGRST202","42P01","42703")
+            state=state.copy(socialReady=false,socialStatus=if(missing)
+                "Social features are waiting for the server update. Photo posts and follows are available."
+                else "Social features could not connect. Check your connection and tap Retry.")
+        }
+    }
+    private suspend fun loadSocial() {
+        if(!state.socialReady) return
+        val owner=state.me?.id ?: return
+        val edges=client().friendships()
+        val people=client().profilesByIds(edges.map { it.other(owner) }.distinct())
+        val visits=if(state.preferences.visitNotifications) client().visits() else emptyList()
+        if(state.me?.id==owner) state=state.copy(friendships=edges,friendPeople=people,visits=visits,
+            socialNotice=edges.count { it.addresseeId==owner && it.status=="pending" }+visits.size)
+    }
+    fun refreshSocial()=act { checkSocial() }
+    fun friendshipWith(id: String)=state.friendships.firstOrNull { it.other(state.me?.id.orEmpty())==id }
+    fun friend(profile: Profile,accept: Boolean=false)=act {
+        requireSocial()
+        val existing=friendshipWith(profile.id)
+        if(existing==null) client().requestFriend(profile.id) else client().resolveFriend(existing,accept)
+        loadSocial()
+        state.profile?.let { state=state.copy(totals=client().profileTotals(it.id),profilePosts=client().feed(author=it.id)) }
+    }
+    fun connectionList(followers: Boolean)=act {
+        requireSocial()
+        val profile=state.profile ?: return@act
+        state=state.copy(connectionTitle=if(followers) "Followers" else "Following",connectionPeople=client().connections(profile.id,followers))
+    }
+    fun closeConnections() { state=state.copy(connectionTitle=null) }
+    fun privacy(ghost: Boolean,visits: Boolean)=act {
+        requireSocial()
+        state=state.copy(preferences=client().setPreferences(ghost,visits));loadSocial()
+    }
+    fun loadReels()=act { requireSocial();val posts=client().feed(videosOnly=true);state=state.copy(reels=posts,reelsMore=posts.size==Rules.PAGE_SIZE) }
+    fun moreReels()=act {
+        val last=state.reels.lastOrNull() ?: return@act
+        val posts=client().feed(FeedCursor(last.createdAt,last.id),videosOnly=true)
+        state=state.copy(reels=(state.reels+posts).distinctBy { it.id },reelsMore=posts.size==Rules.PAGE_SIZE)
+    }
+    fun share(post: Post) { state=state.copy(sharedPost=post);tab(Tab.CHATS) }
+    fun cancelShare() { state=state.copy(sharedPost=null) }
+    fun openChat(profile: Profile)=act {
+        requireSocial()
+        val chat=client().openConversation(profile.id)
+        val messages=client().messages(chat.id)
+        state=state.copy(chat=chat,chatPeer=profile,profile=null,tab=Tab.CHATS,messages=messages,chatMore=messages.size==50)
+    }
+    fun send(body: String,uri: Uri?=null,video: Boolean=false,onSuccess: ()->Unit={})=act {
+        val chat=state.chat ?: return@act
+        val media=uri?.let { if(video) prepareVideo(app,it) else preparePhoto(app,it) }
+        client().sendMessage(chat.id,body,media,video,state.sharedPost?.id)
+        state=state.copy(sharedPost=null,messages=client().messages(chat.id));onSuccess()
+    }
+    fun olderMessages()=act {
+        val chat=state.chat ?: return@act;val first=state.messages.firstOrNull() ?: return@act
+        val older=client().messages(chat.id,first.createdAt)
+        state=state.copy(messages=(older+state.messages).distinctBy { it.id },chatMore=older.size==50)
+    }
+    fun openSharedPost(id: String)=act {
+        val post=client().post(id) ?: error("This post is private or no longer available.")
+        val author=client().profiles(mapOf("id" to "eq.${post.authorId}")).first()
+        state=state.copy(chat=null,chatPeer=null,profile=author,profilePosts=listOf(post),profileMore=false,totals=client().profileTotals(author.id))
+    }
+    fun setForeground(active: Boolean) {
+        foreground=active;socialJob?.cancel()
+        if(!active) { endCall();return }
+        socialJob=viewModelScope.launch {
+            var ticks=0
+            while(foreground) {
+                delay(if(state.call!=null) 2000 else 5000)
+                if(state.me==null || state.resetPassword || !state.socialReady) continue
+                try {
+                    val owner=state.me?.id
+                    val chat=state.chat
+                    if(chat!=null) {
+                        val messages=client().messages(chat.id)
+                        if(state.me?.id==owner && state.chat?.id==chat.id) {
+                            // Preserve explicitly loaded older history while refreshing the newest page.
+                            val boundary=messages.firstOrNull()?.createdAt
+                            val older=if(boundary!=null) state.messages.filter { it.createdAt<boundary } else emptyList()
+                            state=state.copy(messages=(older+messages).distinctBy { it.id })
+                        }
+                    }
+                    val call=state.call
+                    if(call==null) {
+                        val incoming=client().incomingCall()
+                        if(state.me?.id==owner) state=state.copy(incoming=incoming)
+                    } else {
+                        val updated=client().call(call.id)
+                        if(updated==null || updated.status=="ended" || java.time.Instant.parse(call.createdAt).isBefore(java.time.Instant.now().minusSeconds(if(call.status=="ringing") 120 else 3600))) endCall()
+                        else {
+                            if(updated.answer!=null && call.callerId==owner && !answered) { callEngine?.receiveAnswer(updated.answer);answered=true }
+                            state=state.copy(call=updated)
+                        }
+                    }
+                    if(++ticks%6==0 && !state.busy) loadSocial()
+                } catch(e: Exception) { if(e is CancellationException) throw e; /* Actions expose network errors; polling never spams snackbars. */ }
+            }
+        }
+    }
+    private fun engine(video: Boolean): CallEngine = CallEngine(app,video) { message -> viewModelScope.launch { state=state.copy(callStatus=message) } }.also { callEngine=it }
+    fun startCall(video: Boolean)=act {
+        val chat=state.chat ?: return@act;val peer=state.chatPeer ?: return@act
+        require(callEngine==null) { "Finish the current call first." }
+        try {
+            state=state.copy(callStatus="Preparing call…")
+            val offer=engine(video).offer()
+            require(foreground) { "Keep Spark open during calls." }
+            state=state.copy(call=client().createCall(chat.id,peer.id,video,offer),callStatus="Ringing…")
+        } catch(e: Exception) { callEngine?.close();callEngine=null;throw e }
+    }
+    fun acceptCall()=act {
+        val incoming=state.incoming ?: return@act
+        try {
+            state=state.copy(call=incoming,incoming=null,callStatus="Connecting…")
+            val answer=engine(incoming.video).answer(incoming.offer)
+            require(foreground) { "Keep Spark open during calls." }
+            client().answerCall(incoming.id,answer);state=state.copy(call=incoming.copy(status="accepted",answer=answer));answered=true
+        } catch(e: Exception) { endCall();throw e }
+    }
+    fun declineCall() { val id=state.incoming?.id ?: return;state=state.copy(incoming=null);viewModelScope.launch { runCatching { client().endCall(id) } } }
+    fun endCall() {
+        val id=state.call?.id;callEngine?.close();callEngine=null;answered=false;state=state.copy(call=null,callStatus="")
+        if(id!=null) viewModelScope.launch { runCatching { client().endCall(id) } }
+    }
+    override fun onCleared() { callEngine?.close();super.onCleared() }
 }

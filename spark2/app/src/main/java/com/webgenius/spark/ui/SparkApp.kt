@@ -51,25 +51,16 @@ import java.time.temporal.ChronoUnit
 import java.util.UUID
 
 @Composable fun SparkApp(vm: SparkViewModel) {
+    SocialLifecycle(vm)
     val state = vm.state
     val snackbar = remember { SnackbarHostState() }
     val api = vm.api
     val token = if (api != null) { val session by api.session.collectAsStateWithLifecycle(); session?.accessToken.orEmpty() } else ""
     LaunchedEffect(state.message) { state.message?.let { snackbar.showSnackbar(it); vm.dismissMessage() } }
-    BackHandler(state.settings || state.profile != null) { if (state.settings) vm.closeSettings() else vm.back() }
+    BackHandler(state.settings || state.profile != null || state.chat != null) { if (state.settings) vm.closeSettings() else vm.back() }
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
-        bottomBar = {
-            if (state.me != null && !state.resetPassword && state.me.deletingAt == null) {
-                NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainer, tonalElevation = 0.dp) {
-                    listOf(Tab.FEED to Icons.Rounded.Home, Tab.DISCOVER to Icons.Rounded.Search,
-                        Tab.CREATE to Icons.Rounded.AddBox, Tab.REQUESTS to Icons.Rounded.PersonAdd, Tab.PROFILE to Icons.Rounded.Person).forEach { (tab, icon) ->
-                        NavigationBarItem(selected = state.tab == tab, onClick = { vm.tab(tab) }, enabled = !state.busy,
-                            icon = { Icon(icon, tab.label()) }, label = { Text(tab.label(), fontSize = 10.sp) }, alwaysShowLabel = true)
-                    }
-                }
-            }
-        }
+        containerColor = MaterialTheme.colorScheme.background
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
             when {
@@ -77,15 +68,21 @@ import java.util.UUID
                 state.resetPassword -> ResetScreen(vm)
                 state.me == null -> AuthScreen(vm)
                 state.settings || state.me?.deletingAt != null -> SettingsScreen(vm, token)
+                state.chat != null -> ChatScreen(vm,token)
                 state.profile != null -> ProfileScreen(vm, token)
                 else -> Column {
-                    Header(onRequests = { vm.tab(Tab.REQUESTS) }, onRefresh = { vm.refresh() }, enabled = !state.busy)
+                    SocialHeader(vm)
+                    SocialNavigation(vm)
+                    if (!state.socialReady && state.tab == Tab.FEED) SocialPending(vm)
                     when (state.tab) {
                         Tab.FEED -> FeedScreen(vm, token)
                         Tab.DISCOVER -> DiscoverScreen(vm, token)
                         Tab.CREATE -> CreateScreen(vm)
                         Tab.REQUESTS -> RequestsScreen(vm, token)
                         Tab.PROFILE -> EmptyState(Icons.Rounded.Person, "Your profile", "Open your profile to share a little about yourself.")
+                        Tab.REELS -> ReelsScreen(vm,token)
+                        Tab.CHATS -> ChatsScreen(vm,token)
+                        Tab.ACTIVITY -> ActivityScreen(vm,token)
                     }
                 }
             }
@@ -93,13 +90,14 @@ import java.util.UUID
         }
     }
     if (state.commentPost != null) CommentsSheet(vm, token)
+    if(state.connectionTitle!=null) ConnectionsSheet(vm,token)
+    CallSurface(vm)
 }
-private fun Tab.label() = when (this) { Tab.FEED -> "Home"; Tab.DISCOVER -> "Discover"; Tab.CREATE -> "Create"; Tab.REQUESTS -> "Requests"; Tab.PROFILE -> "You" }
+private fun Tab.label() = when (this) { Tab.FEED -> "Home"; Tab.DISCOVER -> "Search"; Tab.CREATE -> "Post"; Tab.REQUESTS -> "Friends"; Tab.PROFILE -> "You"; Tab.REELS -> "Reels"; Tab.CHATS -> "Chats"; Tab.ACTIVITY -> "Activity" }
 
 @Composable private fun Brand(modifier: Modifier = Modifier) {
     Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-        Icon(Icons.Rounded.Bolt, null, tint = SparkOrange, modifier = Modifier.size(31.dp))
-        Text("spark", fontWeight = FontWeight.ExtraBold, fontSize = 31.sp, letterSpacing = (-1.6).sp)
+        Text("spark", color=MaterialTheme.colorScheme.primary, fontWeight = FontWeight.ExtraBold, fontSize = 38.sp, letterSpacing = (-1.6).sp)
     }
 }
 @Composable private fun Header(onRequests: () -> Unit, onRefresh: () -> Unit, enabled: Boolean) {
@@ -109,7 +107,7 @@ private fun Tab.label() = when (this) { Tab.FEED -> "Home"; Tab.DISCOVER -> "Dis
         IconButton(onRequests, enabled = enabled) { Icon(Icons.Rounded.PersonAdd, "Follow requests") }
     }
 }
-@Composable private fun PageHeader(title: String, onBack: () -> Unit, trailing: (@Composable () -> Unit)? = null) {
+@Composable internal fun PageHeader(title: String, onBack: () -> Unit, trailing: (@Composable () -> Unit)? = null) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
         IconButton(onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back") }
         Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
@@ -125,11 +123,11 @@ private fun Tab.label() = when (this) { Tab.FEED -> "Home"; Tab.DISCOVER -> "Dis
 @Composable private fun Field(value: String, onChange: (String) -> Unit, label: String, secret: Boolean = false,
     modifier: Modifier = Modifier, singleLine: Boolean = true) {
     OutlinedTextField(value, onChange, modifier.fillMaxWidth(), label = { Text(label) }, singleLine = singleLine,
-        shape = RoundedCornerShape(16.dp), visualTransformation = if (secret) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
+        shape = RoundedCornerShape(10.dp), visualTransformation = if (secret) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
         keyboardOptions = KeyboardOptions(keyboardType = if (secret) KeyboardType.Password else if (label.contains("Email")) KeyboardType.Email else KeyboardType.Text))
 }
 @Composable private fun FullButton(text: String, enabled: Boolean = true, click: () -> Unit) {
-    Button(click, Modifier.fillMaxWidth().heightIn(min = 54.dp), enabled = enabled, shape = RoundedCornerShape(16.dp)) { Text(text, fontWeight = FontWeight.Bold) }
+    Button(click, Modifier.fillMaxWidth().heightIn(min = 50.dp), enabled = enabled, shape = RoundedCornerShape(8.dp)) { Text(text, fontWeight = FontWeight.Bold) }
 }
 @Composable private fun ConnectScreen(vm: SparkViewModel) {
     var url by rememberSaveable { mutableStateOf("") }
@@ -144,7 +142,7 @@ private fun Tab.label() = when (this) { Tab.FEED -> "Home"; Tab.DISCOVER -> "Dis
         Field(key, { key = it }, "Publishable key", secret = true)
         Text("Use the sb_publishable_ key. Never paste a service-role key, secret key or database password.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         FullButton("Connect Spark", url.isNotBlank() && key.isNotBlank()) { vm.connect(url, key) }
-        Text("SPARK  /  ANDROID PREVIEW 0.2", fontSize = 11.sp, letterSpacing = 1.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("SPARK  /  ANDROID PREVIEW 0.3", fontSize = 11.sp, letterSpacing = 1.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 @Composable private fun AuthScreen(vm: SparkViewModel) {
@@ -155,10 +153,10 @@ private fun Tab.label() = when (this) { Tab.FEED -> "Home"; Tab.DISCOVER -> "Dis
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(26.dp), verticalArrangement = Arrangement.spacedBy(17.dp)) {
         Spacer(Modifier.height(24.dp)); Brand()
         Box(Modifier.fillMaxWidth().height(125.dp).clip(RoundedCornerShape(26.dp)).background(
-            Brush.linearGradient(listOf(Color(0xFFFFD6B5), Color(0xFFF7ACA2), Color(0xFFDBD9BD)))) , contentAlignment = Alignment.Center) {
-            Icon(Icons.Rounded.Bolt, null, Modifier.size(80.dp), tint = Color(0xFF7F352B))
+            Brush.linearGradient(listOf(Color(0xFFE7F0FF), Color(0xFFD6E6FF), Color(0xFFF0F7FF)))) , contentAlignment = Alignment.Center) {
+            Icon(Icons.Rounded.People, null, Modifier.size(80.dp), tint = SparkOrange)
         }
-        Text(if (signup) "Your people.\nYour moments." else "Good to\nsee you here.", style = MaterialTheme.typography.headlineLarge)
+        Text(if (signup) "Join your people." else "Connect with your people.", style = MaterialTheme.typography.headlineLarge)
         Text(if (signup) "Start with a private account. You choose who sees your posts." else "Sign in to catch up and share what matters.", color = MaterialTheme.colorScheme.onSurfaceVariant)
         Field(email, { email = it }, "Email address")
         Field(password, { password = it }, if (signup) "Password · at least 12 characters" else "Password", true)
@@ -195,7 +193,7 @@ private fun Tab.label() = when (this) { Tab.FEED -> "Home"; Tab.DISCOVER -> "Dis
         }
     }
 }
-@Composable private fun EmptyState(icon: ImageVector, title: String, body: String, action: String? = null, click: () -> Unit = {}) {
+@Composable internal fun EmptyState(icon: ImageVector, title: String, body: String, action: String? = null, click: () -> Unit = {}) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 28.dp, vertical = 42.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(15.dp)) {
         Box(Modifier.size(76.dp).clip(RoundedCornerShape(25.dp)).background(MaterialTheme.colorScheme.primaryContainer), contentAlignment = Alignment.Center) {
             Icon(icon, null, Modifier.size(34.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
@@ -205,14 +203,14 @@ private fun Tab.label() = when (this) { Tab.FEED -> "Home"; Tab.DISCOVER -> "Dis
         if (action != null) Button(click) { Text(action) }
     }
 }
-@Composable private fun Avatar(profile: Profile, api: SparkApi?, token: String, size: Int = 43, click: (() -> Unit)? = null) {
+@Composable internal fun Avatar(profile: Profile, api: SparkApi?, token: String, size: Int = 43, click: (() -> Unit)? = null) {
     Box(Modifier.size(size.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer)
         .then(if (click != null) Modifier.clickable(onClick = click) else Modifier), contentAlignment = Alignment.Center) {
         Text(profile.displayName.take(1).uppercase(), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer, fontSize = (size / 3).sp)
         profile.avatarPath?.let { path -> if (api != null) PrivatePhoto(api, token, "spark-avatars", path, "Profile photo of ${profile.username}", Modifier.fillMaxSize()) }
     }
 }
-@Composable private fun PrivatePhoto(api: SparkApi, token: String, bucket: String, path: String, description: String, modifier: Modifier = Modifier) {
+@Composable internal fun PrivatePhoto(api: SparkApi, token: String, bucket: String, path: String, description: String, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val url = runCatching { api.mediaUrl(bucket, path) }.getOrNull()
     if (url != null && token.isNotBlank()) AsyncImage(
@@ -229,7 +227,7 @@ private fun timeAgo(timestamp: String): String = runCatching {
 
 @Composable private fun FeedScreen(vm: SparkViewModel, token: String) {
     LazyColumn(contentPadding = PaddingValues(bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
-        item { SectionTitle("Life, in little moments.", "Fresh posts from the Spark community.") }
+        item { FeedComposer(vm,token) }
         if (vm.state.feed.isEmpty()) item {
             EmptyState(Icons.Rounded.AutoAwesome, "Make the first spark", "Your feed is ready. Share a photo or discover people to follow.", "Share a moment") { vm.tab(Tab.CREATE) }
         }
@@ -237,16 +235,16 @@ private fun timeAgo(timestamp: String): String = runCatching {
         if (vm.state.more && vm.state.feed.isNotEmpty()) item { TextButton(vm::moreFeed, Modifier.fillMaxWidth(), enabled = !vm.state.busy) { Text("Load more moments") } }
     }
 }
-@Composable private fun PostCard(post: Post, vm: SparkViewModel, token: String) {
+@Composable internal fun PostCard(post: Post, vm: SparkViewModel, token: String) {
     var menu by remember { mutableStateOf(false) }
     var delete by remember { mutableStateOf(false) }
     var report by remember { mutableStateOf(false) }
-    Surface(Modifier.padding(horizontal = 16.dp).fillMaxWidth(), shape = RoundedCornerShape(22.dp), color = MaterialTheme.colorScheme.surfaceContainer) {
+    Surface(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surfaceContainer) {
         Column {
             Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(11.dp)) {
                 Avatar(post.profile(), vm.api, token) { vm.openProfile(post.profile()) }
                 Column(Modifier.weight(1f).clickable { vm.openProfile(post.profile()) }) {
-                    Text(post.username, fontWeight = FontWeight.SemiBold)
+                    Text(post.displayName, fontWeight = FontWeight.SemiBold)
                     Text(timeAgo(post.createdAt), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Box {
@@ -257,19 +255,20 @@ private fun timeAgo(timestamp: String): String = runCatching {
                     }
                 }
             }
-            Box(Modifier.fillMaxWidth().aspectRatio(1f).background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
+            if(post.caption.isNotBlank()) Text(post.caption,Modifier.padding(horizontal=16.dp,vertical=8.dp))
+            if(post.mediaKind=="video") VideoPlayer(vm,token,"spark-videos",post.imagePath,Modifier.fillMaxWidth().aspectRatio(0.75f))
+            else Box(Modifier.fillMaxWidth().aspectRatio(1f).background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
                 Icon(Icons.Rounded.Image, null, Modifier.size(42.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 vm.api?.let { PrivatePhoto(it, token, "spark-media", post.imagePath, post.caption.ifBlank { "Photo by ${post.username}" }, Modifier.fillMaxSize()) }
             }
             Row(Modifier.fillMaxWidth().padding(horizontal = 5.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton({ vm.like(post) }, enabled = !vm.state.busy) { Icon(if (post.liked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder, if (post.liked) "Unlike post" else "Like post", tint = if (post.liked) SparkOrange else MaterialTheme.colorScheme.onSurface) }
-                IconButton({ vm.openComments(post) }, enabled = !vm.state.busy) { Icon(Icons.Rounded.ChatBubbleOutline, "Read and write comments") }
-                Spacer(Modifier.weight(1f))
+                TextButton({vm.like(post)},Modifier.weight(1f),enabled=!vm.state.busy) { Icon(Icons.Rounded.ThumbUp,null,Modifier.size(18.dp));Text(" ${post.likeCount}") }
+                TextButton({vm.openComments(post)},Modifier.weight(1f),enabled=!vm.state.busy) { Icon(Icons.Rounded.ChatBubbleOutline,null,Modifier.size(18.dp));Text(" ${post.commentCount}") }
+                TextButton({vm.share(post)},Modifier.weight(1f),enabled=!vm.state.busy) { Icon(Icons.Rounded.Share,null,Modifier.size(18.dp));Text(" Share") }
                 IconButton({ vm.save(post) }, enabled = !vm.state.busy) { Icon(if (post.saved) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder, if (post.saved) "Unsave post" else "Save post") }
             }
             Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 17.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text("${post.likeCount} ${if (post.likeCount == 1) "like" else "likes"}", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
-                if (post.caption.isNotBlank()) Text(post.caption, style = MaterialTheme.typography.bodyMedium)
                 TextButton({ vm.openComments(post) }, contentPadding = PaddingValues(0.dp), enabled = !vm.state.busy) { Text(if (post.commentCount == 0) "Start a conversation" else "View ${post.commentCount} comments", color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
         }
@@ -293,7 +292,7 @@ private fun timeAgo(timestamp: String): String = runCatching {
         }
     }
 }
-@Composable private fun PersonRow(profile: Profile, vm: SparkViewModel, token: String, trailing: (@Composable () -> Unit)? = null) {
+@Composable internal fun PersonRow(profile: Profile, vm: SparkViewModel, token: String, trailing: (@Composable () -> Unit)? = null) {
     Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surfaceContainer) {
         Row(Modifier.fillMaxWidth().clickable(enabled = !vm.state.busy) { vm.openProfile(profile) }.padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Avatar(profile, vm.api, token, 48)
@@ -307,40 +306,52 @@ private fun timeAgo(timestamp: String): String = runCatching {
     var selected by rememberSaveable { mutableStateOf<String?>(null) }
     var cameraUri by rememberSaveable { mutableStateOf<String?>(null) }
     var caption by rememberSaveable { mutableStateOf("") }
+    var video by rememberSaveable { mutableStateOf(false) }
+    val videoPicker=rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> uri?.let { selected=it.toString();video=true } }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> uri?.let { selected = it.toString() } }
     val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success -> if (success) selected = cameraUri }
+    val cameraPermission=rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if(granted) cameraUri?.let {camera.launch(Uri.parse(it))} else vm.showMessage("Camera permission is needed to take a photo. You can still choose one from Photos.")
+    }
     Column(Modifier.verticalScroll(rememberScrollState()).padding(22.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
-        Text("Share a little\nof your world.", style = MaterialTheme.typography.headlineLarge)
-        Text("One photo. A moment worth keeping.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("Create a post", style = MaterialTheme.typography.headlineLarge)
+        Text("Share a photo or a short video with your people.", color = MaterialTheme.colorScheme.onSurfaceVariant)
         Box(Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(24.dp)).background(MaterialTheme.colorScheme.surfaceContainer), contentAlignment = Alignment.Center) {
-            if (selected != null) AsyncImage(Uri.parse(selected), "Selected photo preview", Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            if (selected != null && !video) AsyncImage(Uri.parse(selected), "Selected photo preview", Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            else if(selected!=null) Text("Video selected · up to 60 seconds / 20 MB")
             else Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Icon(Icons.Rounded.AddPhotoAlternate, null, Modifier.size(48.dp), tint = MaterialTheme.colorScheme.primary)
                 Text("Choose your moment")
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            OutlinedButton({ picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }, Modifier.weight(1f), enabled = !vm.state.busy) { Icon(Icons.Rounded.PhotoLibrary, null); Spacer(Modifier.width(8.dp)); Text("Photos") }
+            OutlinedButton({ video=false;picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }, Modifier.weight(1f), enabled = !vm.state.busy) { Icon(Icons.Rounded.PhotoLibrary, null); Spacer(Modifier.width(8.dp)); Text("Photos") }
             OutlinedButton({
+                video=false
                 try {
                     val directory = File(context.cacheDir, "camera").apply { mkdirs() }
                     // Only temporary capture files created by Spark, never gallery media.
                     directory.listFiles()?.filter { System.currentTimeMillis() - it.lastModified() > 86_400_000 }?.forEach { it.delete() }
                     val file = File(directory, "${UUID.randomUUID()}.jpg").apply { createNewFile() }
                     val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
-                    cameraUri = uri.toString(); camera.launch(uri)
+                    cameraUri = uri.toString()
+                    if(androidx.core.content.ContextCompat.checkSelfPermission(context,android.Manifest.permission.CAMERA)==android.content.pm.PackageManager.PERMISSION_GRANTED) camera.launch(uri)
+                    else cameraPermission.launch(android.Manifest.permission.CAMERA)
                 } catch (_: Exception) { vm.showMessage("No camera app is available. Please choose a photo instead.") }
             }, Modifier.weight(1f), enabled = !vm.state.busy) { Icon(Icons.Rounded.PhotoCamera, null); Spacer(Modifier.width(8.dp)); Text("Camera") }
         }
+        OutlinedButton({videoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly))},Modifier.fillMaxWidth(),enabled=!vm.state.busy) { Icon(Icons.Rounded.VideoLibrary,null);Text("  Choose video / Reel") }
         Field(caption, { if (it.length <= 2200) caption = it }, "Write a caption", singleLine = false)
         Text("${caption.length}/2200", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         InfoCard(if (vm.state.me?.isPrivate == true) "Only approved followers" else "Visible to people on Spark", "Photos are resized and location metadata is removed before upload.", Icons.Rounded.Shield)
-        FullButton(if (vm.state.busy) "Sharing…" else "Share moment", !vm.state.busy && selected != null) { selected?.let { vm.publish(Uri.parse(it), caption) } }
+        FullButton(if (vm.state.busy) "Posting…" else "Post", !vm.state.busy && selected != null) { selected?.let { if(video) vm.publishVideo(Uri.parse(it),caption) else vm.publish(Uri.parse(it), caption) } }
     }
 }
 @Composable private fun RequestsScreen(vm: SparkViewModel, token: String) {
     LazyColumn(contentPadding = PaddingValues(horizontal = 18.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item { SectionTitle("Your circle, your call.", "Approve the people you want to share with.") }
+        item { SectionTitle("Friends", "Accept a request to become friends and start chatting.") }
+        item { FriendRequests(vm,token) }
+        item { Text("Follow requests",style=MaterialTheme.typography.titleLarge) }
         item { TextButton(vm::loadRequests, enabled = !vm.state.busy) { Icon(Icons.Rounded.Refresh, null); Text(" Refresh requests") } }
         if (vm.state.requests.isEmpty()) item { EmptyState(Icons.Rounded.PersonAdd, "All caught up", "New follow requests will appear here. Refresh to check for updates.") }
         items(vm.state.requests, key = { it.id }) { profile ->
@@ -362,9 +373,11 @@ private fun timeAgo(timestamp: String): String = runCatching {
         PageHeader(profile.username, vm::back) { if (own) IconButton(vm::settings, enabled = !vm.state.busy) { Icon(Icons.Rounded.Settings, "Settings and edit profile") } }
         LazyColumn(verticalArrangement = Arrangement.spacedBy(18.dp), contentPadding = PaddingValues(bottom = 22.dp)) {
             item {
+                Box(Modifier.fillMaxWidth().height(120.dp).background(Brush.linearGradient(listOf(Color(0xFF0866FF),Color(0xFF8CC6FF)))))
                 Column(Modifier.padding(horizontal = 22.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     Avatar(profile, vm.api, token, 88)
                     Text(profile.displayName, style = MaterialTheme.typography.headlineMedium)
+                    ProfileSocial(vm,token,profile,own)
                     if (profile.bio.isNotBlank()) Text(profile.bio)
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Icon(if (profile.isPrivate) Icons.Rounded.Lock else Icons.Rounded.Public, null, Modifier.size(16.dp))
@@ -435,6 +448,7 @@ private fun timeAgo(timestamp: String): String = runCatching {
         PageHeader("Make it yours", vm::closeSettings)
         Column(Modifier.verticalScroll(rememberScrollState()).padding(22.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
             if (me.deletingAt == null) {
+                PrivacyControls(vm)
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     if (avatar == null) Avatar(me, vm.api, token, 72)
                     else AsyncImage(Uri.parse(avatar), "New avatar preview", Modifier.size(72.dp).clip(CircleShape), contentScale = ContentScale.Crop)
@@ -461,7 +475,7 @@ private fun timeAgo(timestamp: String): String = runCatching {
             HorizontalDivider()
             OutlinedButton(vm::logout, Modifier.fillMaxWidth(), enabled = !vm.state.busy) { Icon(Icons.AutoMirrored.Rounded.ExitToApp, null); Text("  Sign out") }
             TextButton({ delete = true }, Modifier.fillMaxWidth(), enabled = !vm.state.busy) { Text(if (me.deletingAt == null) "Delete account & data" else "Retry account deletion", color = MaterialTheme.colorScheme.error) }
-            Text("Spark 0.2.0 · Photo-sharing preview\nStories, Reels and messaging are not included in this version.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Spark 2 · 0.3.0\nCalls work while both people have Spark open. Video uploads: MP4, 60 seconds, 20 MB maximum.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
     if (delete) AlertDialog(onDismissRequest = { if (!vm.state.busy) { delete = false; password = "" } }, title = { Text("Permanently delete your account?") }, text = {

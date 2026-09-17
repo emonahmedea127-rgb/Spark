@@ -10,8 +10,8 @@ android {
         applicationId = "com.webgenius.spark"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.3.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures { compose = true }
@@ -25,6 +25,7 @@ android {
 }
 kotlin { jvmToolchain(17) }
 dependencies {
+    implementation("io.github.webrtc-sdk:android:150.7871.01")
     implementation(project(":core"))
     implementation(platform("androidx.compose:compose-bom:2025.12.01"))
     implementation("androidx.compose.ui:ui")

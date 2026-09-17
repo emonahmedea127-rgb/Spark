@@ -2,10 +2,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 const read = async path => readFile(new URL('../'+path, import.meta.url),'utf8');
-test('Android requests neither broad gallery access nor camera permission', async () => {
+test('Android limits media access to picker and call permissions', async () => {
   const manifest=await read('app/src/main/AndroidManifest.xml');
   assert.ok(manifest.includes('android.permission.INTERNET'));
-  assert.doesNotMatch(manifest,/android.permission.(READ_MEDIA|READ_EXTERNAL_STORAGE|CAMERA)/);
+  assert.doesNotMatch(manifest,/android.permission.(READ_MEDIA|READ_EXTERNAL_STORAGE)/);
+  assert.ok(manifest.includes('android.permission.CAMERA'));
+  assert.ok(manifest.includes('android.permission.RECORD_AUDIO'));
   assert.ok(manifest.includes('android:allowBackup="false"'));
   assert.ok(manifest.includes('android:usesCleartextTraffic="false"'));
 });
