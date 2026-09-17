@@ -56,7 +56,7 @@ class SparkApiTest {
         val(api,http,store)=fixture(900); http.reply("{}",400)
         assertFailsWith<ApiException> { api.feed() }; assertNull(store.read("session")); assertNull(api.session.value)
     }
-    @Test fun temporaryRefreshFailureDoesNotLoseSession()=runBlocking {
+    @Test fun temporaryRefreshFailureDoesNotLoseSession(): Unit = runBlocking {
         val(api,http,store)=fixture(900); http.reply("{}",503)
         assertFailsWith<ApiException> { api.feed() }; assertNotNull(store.read("session"))
     }
