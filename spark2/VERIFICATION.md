@@ -83,7 +83,7 @@ Those local runtime limitations were resolved for build verification by using Gi
 
 ## Pending configuration and acceptance
 
-- Dashboard sign-in is required to add the exact `spark://auth/callback` recovery redirect, configure a real confirmation Site URL, and verify/set the server minimum password length to 12. The local `config.toml` does not update hosted Auth settings.
+- Hosted Auth configuration completed through the signed-in dashboard: exact redirect `spark://auth/callback`, Site URL `spark://auth/callback`, and minimum password length 12. Saved URLs were verified in the form; the password-length value was verified visually after reopening the provider. Native Site URLs are supported by [Supabase redirect documentation](https://supabase.com/docs/guides/auth/redirect-urls). Confirmation email must be opened on the phone with Spark installed, followed by password sign-in. No live confirmation/recovery email was exercised.
 - Custom SMTP has not been configured. No mail-provider credentials were supplied, and the default Supabase service restricts recipients and sending volume.
 - No real signup, confirmation email, password recovery, authenticated photo upload/download or successful account deletion has been tested against the live services.
 - Device checks remain required, including small screens, large fonts, dark mode, rotation, camera, picker, offline errors and session restoration.

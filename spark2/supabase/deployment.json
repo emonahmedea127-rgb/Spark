@@ -8,6 +8,7 @@
   "migration_name": "spark_photo_app_initial",
   "edge_function": {"name": "delete-account", "version": 1, "verify_jwt": false, "custom_auth": "Auth server token validation followed by current-password verification"},
   "public_client_config": "app/src/main/java/com/webgenius/spark/BundledProject.kt",
-  "auth_settings_pending": ["exact recovery redirect spark://auth/callback", "confirmation Site URL", "server minimum password length 12", "custom SMTP"],
+  "auth_settings_verified": {"site_url":"spark://auth/callback", "redirect_urls":["spark://auth/callback"], "minimum_password_length":12, "email_confirmation_required":true},
+  "auth_settings_pending": ["custom SMTP"],
   "notes": "Schema and function already deployed. Do not rerun setup.sql on this project. No admin keys or test identities are included."
 }

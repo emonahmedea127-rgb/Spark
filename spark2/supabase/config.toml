@@ -14,7 +14,7 @@ major_version = 17
 
 [auth]
 enabled = true
-site_url = "http://localhost:3000"
+site_url = "spark://auth/callback"
 additional_redirect_urls = ["spark://auth/callback"]
 jwt_expiry = 3600
 enable_signup = true

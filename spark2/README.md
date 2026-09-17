@@ -22,7 +22,7 @@ The **spark 2** project was created in **AI Business Copilot**, Singapore, on 17
 
 **Do not rerun `supabase/setup.sql` on spark 2. It is already applied.** The hosted deployment passed 12 authorization assertions with all fixtures rolled back, anonymous HTTP denial checks, and the Security Advisor with no findings. The 48 local Node/PostgreSQL tests also passed. See `VERIFICATION.md` for scope and evidence.
 
-**Build verification:** GitHub Actions compiles the Android app and runs 25 Kotlin/JVM tests and 48 Node tests. See `VERIFICATION.md` for the final build and artifact links. Hosted Auth redirect/minimum-password settings, confirmation Site URL, SMTP and device acceptance testing remain pending. Dashboard access requires a separate sign-in.
+**Build verification:** GitHub Actions compiles the Android app and runs 25 Kotlin/JVM tests and 48 Node tests. See `VERIFICATION.md` for the final build and artifact links. Hosted Auth has the exact mobile callback, native confirmation Site URL and minimum password length 12 configured. SMTP and device acceptance testing remain pending.
 
 ## Quick start on Windows
 
@@ -49,9 +49,9 @@ The setup includes explicit grants because newly created tables are not automati
 
 ### 2. Authentication
 
-- Email/password signup and email confirmation are verified enabled on spark 2. Set the hosted minimum password length to 12; its current value has not been verified through the dashboard.
-- Add the exact redirect URL `spark://auth/callback` to Authentication's allowed redirect URLs. Do not use a broad wildcard.
-- Set Site URL to a real confirmation landing page you control. A signup email confirms the account; the user then signs into Spark. Recovery uses the app callback instead.
+- Email/password signup and email confirmation are verified enabled on spark 2. Hosted minimum password length is verified as 12.
+- The exact redirect URL `spark://auth/callback` is saved in Authentication's allowed redirect URLs, without a wildcard.
+- Site URL is also `spark://auth/callback`, using Supabase's supported native mobile redirect. Open confirmation emails on the phone with Spark installed, then sign in with email/password. The app intentionally does not import tokens from URL fragments. A separate web confirmation page can be added later for desktop users.
 - Open password recovery emails on the same phone that requested them. PKCE stores the verifier only on that device; requests expire locally after one hour and codes are subject to Auth's shorter server limits.
 - Configure your own SMTP provider before inviting general users. The default mail service has recipient restrictions and rate limits. This project does not send SMTP credentials from the app. [Supabase SMTP documentation](https://supabase.com/docs/guides/auth/auth-smtp).
 - Do not enable CAPTCHA without adding its client flow. CAPTCHA integration is a launch hardening item in this source preview.

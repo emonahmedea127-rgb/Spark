@@ -12,14 +12,15 @@
 
 **এই project-এ `supabase/setup.sql` আবার চালাবে না। এটি ইতিমধ্যে প্রয়োগ করা হয়েছে।**
 
-## যে Auth সেটিংগুলো বাকি
+## Auth সেটিং
 
-Dashboard-এ আলাদা sign-in প্রয়োজন বলে নিচের পরিবর্তনগুলো করা যায়নি:
+Dashboard-এ sign-in করে নিচের সেটিংগুলো সংরক্ষণ ও যাচাই করা হয়েছে:
 
-1. Authentication → URL Configuration-এ ঠিক `spark://auth/callback` redirect যোগ করা।
-2. Signup confirmation-এর জন্য নিজের নিয়ন্ত্রিত একটি বাস্তব Site URL দেওয়া।
-3. Email/password-এর minimum password length 12 করা। App ইতিমধ্যে ১২ অক্ষর চায়, তবে server-এর সেটিংও প্রয়োজন।
-4. সাধারণ ব্যবহারকারীদের email confirmation ও reset email পাঠাতে নিজের SMTP provider যুক্ত করা।
+1. Authentication → URL Configuration-এ ঠিক `spark://auth/callback` redirect।
+2. Site URL-ও `spark://auth/callback`, যাতে confirmation শেষে Android app খোলে। একই ফোনে email খুলে তারপর email/password দিয়ে login করবে।
+3. Server-এর minimum password length 12, app-এর নিয়মের সঙ্গে মিলিয়ে।
+
+**বাকি:** সাধারণ ব্যবহারকারীদের email confirmation ও reset email পাঠাতে নিজের SMTP provider যুক্ত করা। SMTP account বা credentials দেওয়া হয়নি।
 
 Email/password signup ও email confirmation বর্তমানে চালু আছে, যা API থেকে যাচাই করা হয়েছে। Default email service সব ঠিকানায় email পাঠায় না। কোনো test signup email পাঠানো হয়নি। Password recovery email একই ফোনে খুলতে হবে।
 
