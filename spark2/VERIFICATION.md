@@ -1,6 +1,6 @@
 # Spark 0.2.0 verification
 
-Date: 17 September 2026. This distinguishes local tests, live backend checks and the unbuilt Android client.
+Date: 17 September 2026. This distinguishes automated build/tests, live backend checks and pending device acceptance.
 
 ## Created and deployed
 
@@ -53,7 +53,20 @@ Live HTTPS checks using the public client key:
 
 The Supabase **Security Advisor returned no findings**. Performance Advisor reported only informational unused indexes on the freshly created, empty tables. These indexes support authorization, foreign keys and pagination; they were retained. [Supabase unused-index advisor documentation](https://supabase.com/docs/guides/database/database-linter?lint=0005_unused_index).
 
-## Android build attempts
+## Android build verification
+
+[GitHub Actions run 35245217789](https://github.com/emonahmedea127-rgb/Spark/actions/runs/35245217789) succeeded at source commit `9a5e16e2bc40d1d961c937b1dd059558b1c0290c` on `spark-2-preview`.
+
+- Android Kotlin compilation and `:app:assembleDebug`: passed.
+- `:core:test`: 25 tests, 0 failures, 0 ignored (10 RulesTest and 15 SparkApiTest).
+- Node/PostgreSQL/handler tests: 48 passed, 0 failed.
+- `:app:lintDebug`: passed with 0 errors and 23 warnings. Warnings include dependency updates, style suggestions, target API and backup configuration; no lint baseline or suppression was added to pass the gate.
+- Fixed JUnit's non-void test signature and scoped light navigation-bar styling to API 27+ while retaining API 26 support.
+- APK artifact `10506649874`, reports artifact `10507053150`.
+- Delivered `Spark-2-v0.2.0-debug.apk`: 19,921,264 bytes; SHA-256 `23601cff853bd70c0861b084f89fa289e656498d93ae8c8ce8f492fbf18dcee8`.
+- Downloaded APK archive and inner ZIP integrity checked. This is a debug build; it has not been installed on a phone or emulator in this task.
+
+### Earlier local build limitations
 
 - Gradle 8.13 was downloaded from its official distribution and verified against the checked-in SHA-256.
 - `gradle --version` succeeded using the system Java 17 runtime.
@@ -62,12 +75,10 @@ The Supabase **Security Advisor returned no findings**. Performance Advisor repo
 - A separate official Temurin 17.0.20.1 JDK failed at JVM startup with an instrumentation assertion and `processing of -javaagent failed`.
 - Runtime instrumentation and network controls were not disabled or patched.
 
-**No Kotlin compilation, JVM test execution, Android lint, APK, emulator run or phone test has succeeded.** A successful Gradle version command does not establish that the app compiles. The original source had a syntax-only parse on 16 September; that is not a build and is not presented as verification of this updated source.
+Those local runtime limitations were resolved for build verification by using GitHub Actions, without disabling runtime instrumentation or network controls.
 
-## Provided but not executed
+## Device acceptance not executed
 
-- 25 Kotlin/JVM tests for validation, RFC 7636 PKCE, request authentication, refresh races, pagination and upload ordering.
-- Manual GitHub Actions workflow for Node tests, JVM tests, Android lint and a debug APK. No repository was created or workflow started.
 - Two-account device acceptance checklist in `README.md`.
 
 ## Pending configuration and acceptance
@@ -75,7 +86,7 @@ The Supabase **Security Advisor returned no findings**. Performance Advisor repo
 - Dashboard sign-in is required to add the exact `spark://auth/callback` recovery redirect, configure a real confirmation Site URL, and verify/set the server minimum password length to 12. The local `config.toml` does not update hosted Auth settings.
 - Custom SMTP has not been configured. No mail-provider credentials were supplied, and the default Supabase service restricts recipients and sending volume.
 - No real signup, confirmation email, password recovery, authenticated photo upload/download or successful account deletion has been tested against the live services.
-- Android compilation and device checks remain required, including small screens, large fonts, dark mode, rotation, camera, picker, offline errors and session restoration.
+- Device checks remain required, including small screens, large fonts, dark mode, rotation, camera, picker, offline errors and session restoration.
 - Stories, Reels, chat, push notifications, Google login and video processing are not implemented in this photo-sharing preview.
 - Release signing and public launch preparation remain outside the completed preview.
 

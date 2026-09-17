@@ -1,4 +1,4 @@
-# Spark for Android
+# Spark 2 for Android
 
 A native Kotlin + Jetpack Compose photo-sharing project connected by default to your new **spark 2** Supabase project. Package: `com.webgenius.spark`. This is a **0.2.0 source preview**, not an Instagram-scale production release.
 
@@ -22,7 +22,7 @@ The **spark 2** project was created in **AI Business Copilot**, Singapore, on 17
 
 **Do not rerun `supabase/setup.sql` on spark 2. It is already applied.** The hosted deployment passed 12 authorization assertions with all fixtures rolled back, anonymous HTTP denial checks, and the Security Advisor with no findings. The 48 local Node/PostgreSQL tests also passed. See `VERIFICATION.md` for scope and evidence.
 
-**Still pending:** hosted Auth redirect/minimum-password settings and SMTP, an Android build and device acceptance test. The dashboard requires a separate sign-in. The available Java runtimes have not produced a successful build; no APK is included. The supplied manual GitHub workflow has not been run against your account.
+**Build verification:** GitHub Actions compiles the Android app and runs 25 Kotlin/JVM tests and 48 Node tests. See `VERIFICATION.md` for the final build and artifact links. Hosted Auth redirect/minimum-password settings, confirmation Site URL, SMTP and device acceptance testing remain pending. Dashboard access requires a separate sign-in.
 
 ## Quick start on Windows
 
@@ -35,7 +35,7 @@ The **spark 2** project was created in **AI Business Copilot**, Singapore, on 17
 7. Spark opens at sign-in with **spark 2** preconfigured. The optional **Change backend connection** screen can select a different configured project or restore spark 2. Only modern publishable keys beginning `sb_publishable_` are accepted.
 8. Sign up two test users, confirm their email addresses, then complete the two-account acceptance test below.
 
-If you prefer CI, add this source to your own GitHub repository and manually run **Actions → Build Spark preview → Run workflow**. The workflow produces an APK only if compilation/tests succeed. No repository was created or pushed automatically.
+Source is in [Spark, branch spark-2-preview, folder spark2](https://github.com/emonahmedea127-rgb/Spark/tree/spark-2-preview/spark2). Open **Actions → Build Spark 2 Android** for builds and APK artifacts. The root `.github/workflows/spark-2.yml` builds this subdirectory automatically. The previous application on `main` is unchanged. If extracting `spark2` as its own repository, use its included manual `android.yml` workflow.
 
 ## Supabase setup
 
@@ -113,11 +113,11 @@ npm test
 ./gradlew :core:test :app:assembleDebug :app:lintDebug
 ```
 
-Node 24 is used for the tests, including direct execution of the TypeScript deletion handler with mocked HTTPS responses. PGlite runs real PostgreSQL row-security rules against minimal Auth/Storage metadata stubs. Kotlin unit tests cover API request formatting, refresh races, upload ordering, validation and PKCE using an in-process fake transport. They are provided but were not executable in the authoring runtime.
+Node 24 is used for the tests, including direct execution of the TypeScript deletion handler with mocked HTTPS responses. PGlite runs real PostgreSQL row-security rules against minimal Auth/Storage metadata stubs. All 25 Kotlin unit tests passed in GitHub Actions, covering API request formatting, refresh races, upload ordering, validation and PKCE using an in-process fake transport.
 
 ## Important limits before production
 
-- No Android build/device/visual QA or complete two-device Supabase end-to-end test has passed in this delivery environment. Database and unauthenticated HTTP checks have passed. Run and fix any build/device issues before distribution.
+- Android compilation and automated tests have passed. Device/visual QA and a complete two-device Supabase end-to-end test remain unperformed. Complete the acceptance checklist before distribution.
 - Username search shows up to 40 results; Requests shows up to 40 pending users from a capped query. Comments show the latest 100. Feed/profile posts use composite cursor pagination. These are preview limits, not a claim of unrestricted scale.
 - A failed/ambiguous upload may leave an unattached file. The app never deletes a file after an ambiguous insert result because the insert may have committed. Review the read-only orphan report; delete confirmed old orphan files through Storage API after a safe retention window. Automatic orphan cleanup, resumable background upload and idempotent upload retries are not implemented.
 - The database has basic per-caller write limits. They are not a complete abuse-prevention system: storage quota enforcement, CAPTCHA, network rate limiting, malware/content review, monitoring and operational alerts still need work.

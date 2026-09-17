@@ -25,9 +25,9 @@ Email/password signup ও email confirmation বর্তমানে চাল�
 
 ## Android app build
 
-এখনো APK তৈরি হয়নি। এখানে Gradle version command চলে, কিন্তু build সফল হয়নি। Android source compile হয়েছে বলে দাবি করা হচ্ছে না। Java runtime ও dependency resolution-এর বিস্তারিত ত্রুটি `VERIFICATION.md`-তে আছে।
+GitHub Actions-এ APK build সফল হয়েছে। ২৫টি Kotlin test, ৪৮টি Node test এবং Android lint পাস করেছে। [সফল build ও APK](https://github.com/emonahmedea127-rgb/Spark/actions/runs/35245217789)। এটি test করার debug APK; ফোনে পরীক্ষা এখনও বাকি।
 
-1. ZIP extract করে `spark-android` folder Android Studio দিয়ে খোলো।
+1. GitHub-এর `spark-2-preview` branch download করে `spark2` folder Android Studio দিয়ে খোলো।
 2. Gradle JDK 17, SDK Platform 36 ও Build-Tools 36.0.0 রাখো।
 3. Terminal-এ চালাও:
 
@@ -35,7 +35,7 @@ Email/password signup ও email confirmation বর্তমানে চাল�
 .\gradlew.bat :core:test :app:assembleDebug :app:lintDebug
 ```
 
-সব সফল হলে `app/build/outputs/apk/debug/app-debug.apk` পাবে। Android Studio-এর Run দিয়েও test phone-এ চালাতে পারবে। Android 8 বা নতুন সংস্করণ প্রয়োজন। দেওয়া GitHub Actions workflow-ও build করতে পারে; এখানে কোনো repository তৈরি বা workflow চালানো হয়নি।
+সব সফল হলে `app/build/outputs/apk/debug/app-debug.apk` পাবে। Android Studio-এর Run দিয়েও test phone-এ চালাতে পারবে। Android 8 বা নতুন সংস্করণ প্রয়োজন। তোমার `Spark` repository-র `spark-2-preview` branch-এ নতুন source ও build workflow আছে। আগের `main` branch বদলানো হয়নি।
 
 ## App চালানো
 
