@@ -1,0 +1,13 @@
+{
+  "project_name": "spark 2",
+  "organization_name": "AI Business Copilot",
+  "project_ref": "twywavuyghftkzsflfrf",
+  "api_url": "https://twywavuyghftkzsflfrf.supabase.co",
+  "region": "ap-southeast-1",
+  "deployed_on": "2026-09-17",
+  "migration_name": "spark_photo_app_initial",
+  "edge_function": {"name": "delete-account", "version": 1, "verify_jwt": false, "custom_auth": "Auth server token validation followed by current-password verification"},
+  "public_client_config": "app/src/main/java/com/webgenius/spark/BundledProject.kt",
+  "auth_settings_pending": ["exact recovery redirect spark://auth/callback", "confirmation Site URL", "server minimum password length 12", "custom SMTP"],
+  "notes": "Schema and function already deployed. Do not rerun setup.sql on this project. No admin keys or test identities are included."
+}

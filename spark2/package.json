@@ -1,0 +1,8 @@
+{
+  "name": "spark-verification",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": { "test": "node --test tests/database.test.mjs tests/source.test.mjs tests/deletion.test.mjs" },
+  "devDependencies": { "@electric-sql/pglite": "0.3.14" }
+}
