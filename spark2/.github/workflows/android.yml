@@ -20,6 +20,10 @@ jobs:
       - name: Test database policies and deletion handler
         run: npm ci --ignore-scripts && npm test
       - name: Prepare Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: ''
+      - name: Install Android platform and build tools
         run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
       - name: Build and test
         run: chmod +x gradlew && ./gradlew :core:test :app:assembleDebug :app:lintDebug --no-daemon
