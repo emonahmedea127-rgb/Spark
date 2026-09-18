@@ -256,11 +256,11 @@ import org.webrtc.VideoTrack
      Surface(Modifier.widthIn(max=290.dp),shape=RoundedCornerShape(18.dp),color=if(own) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface) {
       Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
        if(m.body.isNotBlank()) Text(m.body)
-       if(m.mediaPath!=null) {
-        if(m.mediaKind=="video") VideoPlayer(vm,token,"spark-chat",m.mediaPath,Modifier.fillMaxWidth().height(230.dp))
-        else vm.api?.let {PrivatePhoto(it,token,"spark-chat",m.mediaPath,"Shared photo",Modifier.fillMaxWidth().height(230.dp).clip(RoundedCornerShape(8.dp)))}
+       m.mediaPath?.let { path ->
+        if(m.mediaKind=="video") VideoPlayer(vm,token,"spark-chat",path,Modifier.fillMaxWidth().height(230.dp))
+        else vm.api?.let {PrivatePhoto(it,token,"spark-chat",path,"Shared photo",Modifier.fillMaxWidth().height(230.dp).clip(RoundedCornerShape(8.dp)))}
        }
-       if(m.postId!=null) OutlinedButton({vm.openSharedPost(m.postId)}) {Icon(Icons.Rounded.OpenInNew,null);Text(" View shared post")}
+       m.postId?.let { id -> OutlinedButton({vm.openSharedPost(id)}) {Icon(Icons.Rounded.OpenInNew,null);Text(" View shared post")} }
        Text(m.createdAt.take(16).replace('T',' ')+" UTC",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
       }
      }

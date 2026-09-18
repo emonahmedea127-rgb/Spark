@@ -330,7 +330,8 @@ class SparkViewModel(application: Application) : AndroidViewModel(application) {
                         val updated=client().call(call.id)
                         if(updated==null || updated.status=="ended" || java.time.Instant.parse(call.createdAt).isBefore(java.time.Instant.now().minusSeconds(if(call.status=="ringing") 120 else 3600))) endCall()
                         else {
-                            if(updated.answer!=null && call.callerId==owner && !answered) { callEngine?.receiveAnswer(updated.answer);answered=true }
+                            val answer=updated.answer
+                            if(answer!=null && call.callerId==owner && !answered) { callEngine?.receiveAnswer(answer);answered=true }
                             state=state.copy(call=updated)
                         }
                     }
