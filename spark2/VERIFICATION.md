@@ -1,4 +1,26 @@
-# Spark 0.2.0 verification
+# Spark verification
+
+## 0.3.0 social update — built and deployed
+
+[GitHub Actions run 35306943294](https://github.com/emonahmedea127-rgb/Spark/actions/runs/35306943294) succeeded at commit `2c83b6fae10aaace6ffc84d7b60a344b7d4c1f10` on 18 September 2026. Android compilation, debug assembly, 25 Kotlin/JVM tests and 75 Node tests passed. Lint reported **0 errors, 26 warnings**; no lint baseline or suppression was added. APK artifact: `10532225655`; reports: `10532600099`.
+
+`Spark-2-v0.3.0-debug.apk` is 68,419,397 bytes. SHA-256: `6dedc856df3a1cb91ccf6432bbcee49342fd3ae2e4d4fdfd8f35a92f1521e8fa`. The downloaded artifact hash matches GitHub's digest; archive and APK ZIP integrity checks passed. This APK has not been installed on a physical phone or emulator in this task. Its debug signing key may differ from earlier CI builds; an in-place update from 0.2.0 is not guaranteed.
+
+On 17 September 2026, `npm test` completed with **75 tests passed, 0 failed**. This includes the prior 48 baseline checks and 27 social checks (26 subtests and their parent). New checks cover recipient-only friend acceptance, immutable friend endpoints, private Reel access, Ghost mode, visitor impersonation prevention, visitor opt-out, chat membership and sender ownership, private chat media, callee-only call answering, immutable call endpoints, block revocation, anonymous denial, RLS and invoker views.
+
+These tests execute PostgreSQL locally with Auth/Storage stubs; deletion-handler tests mock outbound HTTPS. They do not prove the Android UI compiles or that real phone calls work. Missing-backend handling has been added to preserve the photo/follow UI and display an explicit Retry notice.
+
+After explicit user approval, source commit `198e60b968cc032960e3b111930ebb29fa0ec683` was uploaded to `spark-2-preview`, migration `spark_social_preview` was applied, and `delete-account` version 2 became ACTIVE. The first Android build found four cross-module nullable smart-cast errors; the source now binds those properties to local values.
+
+On 18 September, `supabase/verify-social-rollback.sql` passed **12 live social authorization assertions**: self-approval denied; Ghost visit invisible; target accepts friendship; unrelated users cannot read chat or call signaling; visible visits and messages reach their recipient; recipient answers call; blocking revokes friendship, message, call and visitor access. All synthetic identities and rows were rolled back. The first version of this test used `INSERT ... RETURNING` for conversations, which is incompatible with the conversation lookup policy; it was corrected to match the app's insert-then-select flow. No policy was weakened. The live project has one existing real account; it was not modified.
+
+Catalog checks confirmed all 14 public tables use RLS, all 4 views use `security_invoker=true`, no public functions are security definer, and all 4 media buckets are private. Security Advisor reported one warning: leaked-password protection is disabled. This requires [Supabase Pro or above](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection); no paid upgrade was made. Minimum password length remains 12.
+
+Live HTTPS checks for v2: unauthenticated messages read returned 401; deletion without a bearer token and with an invalid token both returned 401. One unauthenticated friendship request encountered a network error and was not counted as an authorization result.
+
+Remaining gates: configure SMTP; test two confirmed accounts on Android including photo/video upload, friendship, private chat, visitor privacy, call permissions and call shutdown. No device performance measurement has been made. Historical successful APK/build/live checks below apply only to 0.2.0.
+
+## Prior 0.2.0 verification
 
 Date: 17 September 2026. This distinguishes automated build/tests, live backend checks and pending device acceptance.
 

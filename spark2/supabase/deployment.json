@@ -6,9 +6,10 @@
   "region": "ap-southeast-1",
   "deployed_on": "2026-09-17",
   "migration_name": "spark_photo_app_initial",
-  "edge_function": {"name": "delete-account", "version": 1, "verify_jwt": false, "custom_auth": "Auth server token validation followed by current-password verification"},
+  "edge_function": {"name": "delete-account", "version": 2, "verify_jwt": false, "custom_auth": "Auth server token validation followed by current-password verification"},
   "public_client_config": "app/src/main/java/com/webgenius/spark/BundledProject.kt",
   "auth_settings_verified": {"site_url":"spark://auth/callback", "redirect_urls":["spark://auth/callback"], "minimum_password_length":12, "email_confirmation_required":true},
   "auth_settings_pending": ["custom SMTP"],
-  "notes": "Schema and function already deployed. Do not rerun setup.sql on this project. No admin keys or test identities are included."
+  "social_upgrade": {"source_version":"0.3.0", "deployed":true, "android_build_verified":true, "build_run":35306943294, "source_commit":"2c83b6fae10aaace6ffc84d7b60a344b7d4c1f10", "migration_name":"spark_social_preview", "migration_file":"supabase/social-upgrade.sql", "edge_update_pending":false, "live_authorization_checks":12, "verified_on":"2026-09-18"},
+  "notes": "0.3.0 social schema and deletion handler v2 deployed after explicit user approval. Fourteen tables have RLS; four views use security_invoker; all four media buckets are private. Do not rerun setup.sql or social-upgrade.sql on this project. SMTP and device acceptance remain pending."
 }

@@ -1,6 +1,16 @@
 # Spark 2 for Android
 
-A native Kotlin + Jetpack Compose photo-sharing project connected by default to your new **spark 2** Supabase project. Package: `com.webgenius.spark`. This is a **0.2.0 source preview**, not an Instagram-scale production release.
+A native Kotlin + Jetpack Compose social project connected by default to your **spark 2** Supabase project. Package: `com.webgenius.spark`. The source and deployed social backend are **0.3.0**. See `VERIFICATION.md` for Android build status and remaining acceptance work. This is not a production release.
+
+## Social upgrade status — 0.3.0
+
+Local code adds a Facebook-inspired blue/white interface with Spark branding, mutual friend requests, visible follower/following counts and lists, short MP4 Reels, photo/video chat attachments, sharing posts to friends, foreground WebRTC audio/video calls, and a profile-visitor activity dashboard. Ghost mode is on by default; invisible visits are not recorded. Visible visits are shown for up to 30 days. Turning Ghost mode on does not erase previous visible visits.
+
+**75 local Node/PostgreSQL/security tests and 12 live social authorization checks pass.** After explicit user approval, source upload, the social migration and the updated deletion handler deployment succeeded. See `VERIFICATION.md` for Android compilation and APK evidence. Two-device acceptance remains pending.
+
+`supabase/social-upgrade.sql` and the updated `delete-account` handler are deployed on the existing project. **Do not rerun either SQL setup script there.** When connected to a different backend that lacks the social update, the new UI explicitly reports unavailable social features. No paid service or upgrade has been activated.
+
+Calls require both apps to remain open. No TURN relay is configured, so some networks cannot connect. There are no background incoming-call or OS push notifications. Activity is polled while the app is open. Reels are manual-play, maximum 20 MiB with a client-side 60-second duration limit. Video transcoding, malware scanning and video metadata removal are not implemented. Free service quotas are finite; unlimited usage at no cost cannot be guaranteed.
 
 ## What is included
 
@@ -14,9 +24,9 @@ A native Kotlin + Jetpack Compose photo-sharing project connected by default to 
 - Light/dark system theme, loading/errors, empty states and accessible button labels.
 - Eight RLS-protected tables, two invoker-security views, two private buckets, basic database write limits and a deletion Edge Function.
 
-Stories, Reels, direct messages, push notifications, video processing, recommendation ranking, Google login and a moderation dashboard are **not implemented**. Requests use explicit refresh, not Realtime. No dummy accounts or shared demo database are included.
+Stories, push notifications, video processing, recommendation ranking, Google login and a moderation dashboard are **not implemented**. The social source adds Reels and direct messages as described above. Requests use explicit refresh and foreground polling, not Realtime. No dummy accounts or shared demo database are included.
 
-## Status of this delivery
+## Previously verified deployment — 0.2.0
 
 The **spark 2** project was created in **AI Business Copilot**, Singapore, on 17 September 2026. Project ref: `twywavuyghftkzsflfrf`. The database, private Storage buckets and `delete-account` Edge Function are deployed. The Android source includes only its public URL and publishable key in `BundledProject.kt`; it opens directly at sign-in and still allows changing projects.
 

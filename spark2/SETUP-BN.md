@@ -1,5 +1,13 @@
 # Spark 2 চালু করার বাংলা গাইড
 
+## নতুন social version 0.3.0-এর বর্তমান অবস্থা
+
+Friend request, Reels, private chat, ছবি–ভিডিও পাঠানো, foreground audio/video call এবং Ghost mode-সহ visitor dashboard-এর code তৈরি ও GitHub-এ upload হয়েছে। **৭৫টি local test এবং ১২টি live social permission check পাস করেছে।** Android build-এর সর্বশেষ ফল `VERIFICATION.md`-তে আছে। নিচের পুরোনো 0.2.0 তথ্য ঐ version-এর পরীক্ষার বিবরণ।
+
+তোমার স্পষ্ট অনুমতির পরে `spark-2-preview` branch-এ source upload, শুধু `twywavuyghftkzsflfrf` project-এ social migration এবং updated `delete-account` version 2 deploy হয়েছে। ১৪টি table-এর RLS, চারটি view-এর permission এবং চারটি private media bucket যাচাই হয়েছে। SQL script আবার চালাবে না।
+
+Backend update না হলে social feature unavailable বার্তা দেখাবে। SMTP এখনও configure করা হয়নি। Call-এর সময় দুইজনের app খোলা থাকতে হবে; TURN relay না থাকায় কিছু network-এ call চলবে না। Background ringing বা push notification নেই। কোনো paid service চালু করা হয়নি; free quota সীমিত।
+
 ১৭ সেপ্টেম্বর ২০২৬-এ **AI Business Copilot** organization-এ **spark 2** তৈরি করা হয়েছে। Region: Singapore। Project ID: `twywavuyghftkzsflfrf`।
 
 ## যা সম্পন্ন হয়েছে
