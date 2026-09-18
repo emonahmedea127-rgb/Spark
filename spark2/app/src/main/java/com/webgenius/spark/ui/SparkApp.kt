@@ -207,17 +207,38 @@ private fun Tab.label() = when (this) { Tab.FEED -> "Home"; Tab.DISCOVER -> "Sea
     Box(Modifier.size(size.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer)
         .then(if (click != null) Modifier.clickable(onClick = click) else Modifier), contentAlignment = Alignment.Center) {
         Text(profile.displayName.take(1).uppercase(), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer, fontSize = (size / 3).sp)
-        profile.avatarPath?.let { path -> if (api != null) PrivatePhoto(api, token, "spark-avatars", path, "Profile photo of ${profile.username}", Modifier.fillMaxSize()) }
+        profile.avatarPath?.let { path -> if (api != null) PrivatePhoto(api, token, "spark-avatars", path, "Profile photo of ${profile.username}", Modifier.fillMaxSize(), showDetails = false) }
     }
 }
-@Composable internal fun PrivatePhoto(api: SparkApi, token: String, bucket: String, path: String, description: String, modifier: Modifier = Modifier) {
+@Composable internal fun PrivatePhoto(api: SparkApi, token: String, bucket: String, path: String, description: String, modifier: Modifier = Modifier, showDetails: Boolean = true) {
     val context = LocalContext.current
     val url = runCatching { api.mediaUrl(bucket, path) }.getOrNull()
-    if (url != null && token.isNotBlank()) AsyncImage(
-        model = ImageRequest.Builder(context).data(url).addHeader("Authorization", "Bearer $token")
+    var attempt by remember(url, token) { mutableIntStateOf(0) }
+    var loading by remember(url, token, attempt) { mutableStateOf(true) }
+    var failed by remember(url, token, attempt) { mutableStateOf(false) }
+    val request = remember(context, url, token, attempt) {
+        ImageRequest.Builder(context).data(url).addHeader("Authorization", "Bearer $token")
             .addHeader("apikey", api.config.publishableKey).diskCachePolicy(CachePolicy.DISABLED)
-            .memoryCachePolicy(CachePolicy.DISABLED).networkCachePolicy(CachePolicy.DISABLED).crossfade(true).build(),
-        contentDescription = description, modifier = modifier, contentScale = ContentScale.Crop)
+            // Coil's network read flag permits HTTP; disabling it forces a cache-only 504.
+            // Disk and memory remain disabled, so every load rechecks Storage authorization.
+            .memoryCachePolicy(CachePolicy.DISABLED).networkCachePolicy(CachePolicy.ENABLED).crossfade(true).build()
+    }
+    Box(modifier, contentAlignment = Alignment.Center) {
+        if (url != null && token.isNotBlank()) key(attempt) {
+            AsyncImage(model = request, contentDescription = description,
+                modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop,
+                onLoading = { loading = true; failed = false },
+                onSuccess = { loading = false; failed = false },
+                onError = { loading = false; failed = true })
+        }
+        if (showDetails) {
+            if (loading && !failed && url != null && token.isNotBlank()) CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 2.dp)
+            if (failed || url == null || token.isBlank()) Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("Photo could not load", style = MaterialTheme.typography.bodyMedium)
+                TextButton({ attempt++ }) { Icon(Icons.Rounded.Refresh, null); Text(" Retry") }
+            }
+        }
+    }
 }
 private fun Post.profile() = Profile(authorId, username, displayName, avatarPath = avatarPath)
 private fun timeAgo(timestamp: String): String = runCatching {
@@ -256,7 +277,7 @@ private fun timeAgo(timestamp: String): String = runCatching {
                 }
             }
             if(post.caption.isNotBlank()) Text(post.caption,Modifier.padding(horizontal=16.dp,vertical=8.dp))
-            if(post.mediaKind=="video") VideoPlayer(vm,token,"spark-videos",post.imagePath,Modifier.fillMaxWidth().aspectRatio(0.75f))
+            if(post.mediaKind=="video") VideoPlayer(vm,token,"spark-videos",post.imagePath,Modifier.fillMaxWidth().aspectRatio(16f / 9f))
             else Box(Modifier.fillMaxWidth().aspectRatio(1f).background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
                 Icon(Icons.Rounded.Image, null, Modifier.size(42.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 vm.api?.let { PrivatePhoto(it, token, "spark-media", post.imagePath, post.caption.ifBlank { "Photo by ${post.username}" }, Modifier.fillMaxSize()) }
@@ -475,7 +496,7 @@ private fun timeAgo(timestamp: String): String = runCatching {
             HorizontalDivider()
             OutlinedButton(vm::logout, Modifier.fillMaxWidth(), enabled = !vm.state.busy) { Icon(Icons.AutoMirrored.Rounded.ExitToApp, null); Text("  Sign out") }
             TextButton({ delete = true }, Modifier.fillMaxWidth(), enabled = !vm.state.busy) { Text(if (me.deletingAt == null) "Delete account & data" else "Retry account deletion", color = MaterialTheme.colorScheme.error) }
-            Text("Spark 2 · 0.3.0\nCalls work while both people have Spark open. Video uploads: MP4, 60 seconds, 20 MB maximum.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Spark 2 · 0.3.1\nCalls work while both people have Spark open. Video uploads: MP4, 60 seconds, 20 MB maximum.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
     if (delete) AlertDialog(onDismissRequest = { if (!vm.state.busy) { delete = false; password = "" } }, title = { Text("Permanently delete your account?") }, text = {
