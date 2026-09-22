@@ -1,0 +1,32 @@
+{
+  "passed": 27,
+  "checks": [
+    "RLS enabled on all 17 new tables",
+    "Media bucket is private",
+    "Owner sees all own posts",
+    "Story expiry is assigned by the database",
+    "Cannot impersonate another post author",
+    "Cannot attach another users media",
+    "Sender cannot accept own friend request",
+    "Stranger sees public post and public story only",
+    "Private post media hidden from strangers",
+    "Recipient can accept request",
+    "Accepted friend sees friends-only post",
+    "Post ownership cannot be reassigned",
+    "Friend can comment on visible post",
+    "Conversation recipient reads message",
+    "Conversation recipient reads chat media",
+    "Server creates recipient notifications",
+    "Clients cannot forge notifications",
+    "Third user cannot read conversation messages",
+    "Third user cannot read call signaling",
+    "Third user cannot read chat media",
+    "Third user cannot send into conversation",
+    "Third user cannot inject call candidates",
+    "Call recipient can answer",
+    "Blocking hides blocked authors posts",
+    "Blocking revokes conversation access",
+    "Block is enforced in both directions",
+    "Block revokes chat media access"
+  ]
+}
