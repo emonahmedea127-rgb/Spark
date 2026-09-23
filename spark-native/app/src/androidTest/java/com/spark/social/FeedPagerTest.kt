@@ -22,6 +22,6 @@ class FeedPagerTest {
         val requests=mutableListOf<Int>();var fail=false
         val pager=FeedPager {offset->requests+=offset;if(fail)throw IllegalStateException("offline");(offset until offset+20).map {json("id" to "$it")} }
         pager.load(true);pager.load();fail=true;pager.load(true);assertEquals(40,pager.posts.size)
-        fail=false;pager.load(true);pager.load();assertEquals(listOf(0,20,0,0,20),requests);assertEquals(40,pager.posts.size)
+        fail=false;pager.load();pager.load();assertEquals(listOf(0,20,0,0,20),requests);assertEquals(40,pager.posts.size)
     }
 }

@@ -13,18 +13,20 @@ class FeedPager(private val fetch:suspend(Int)->List<JSONObject>) {
     var more by mutableStateOf(true);private set
     var error by mutableStateOf<String?>(null);private set
     private var offset=0
+    private var failedRefresh=false
     private val lock=Mutex()
     suspend fun load(refresh:Boolean=false) {
-        if(!refresh&&(loading||!more))return
+        val reset=refresh||(error!=null&&failedRefresh)
+        if(!reset&&(loading||!more))return
         lock.withLock {
             loading=true;error=null
             try {
-                val start=if(refresh)0 else offset
+                val start=if(reset)0 else offset
                 val next=fetch(start)
-                posts=if(refresh)next.distinctBy {it.id()} else (posts+next).distinctBy {it.id()}
-                offset=start+next.size;more=next.size==20
+                posts=if(reset)next.distinctBy {it.id()} else (posts+next).distinctBy {it.id()}
+                offset=start+next.size;more=next.size==20;failedRefresh=false
             }catch(e:CancellationException) {throw e}
-            catch(e:Exception) {error=e.message?:"Couldn't load posts. Please retry."}
+            catch(e:Exception) {failedRefresh=reset;error=e.message?:"Couldn't load posts. Please retry."}
             finally {loading=false}
         }
     }

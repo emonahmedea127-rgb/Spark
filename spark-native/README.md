@@ -1,5 +1,16 @@
 # Spark Android
 
+## 1.3 আপডেট
+
+- Reference-এর মতো reaction/comment/share row এবং ডানে reaction emoji। Like tap করে toggle; hold করলে ছয়টি reaction।
+- Post-এর নিচে নাম-ছবিসহ comment preview, Reply, comment Like ও গোল comment composer। Plus button দিয়ে emoji যোগ করা যায়; লেখার পরে Send button আসে।
+- Comment replies Supabase-এ parent comment-এর সঙ্গে সংযুক্ত থাকে। Comment list-এ ৫০টি করে আরও comment load করা যায়।
+- Feed-এর Load more শুধু পরের page আনে; আগের pages আবার download করে না। Failed page retry করলে কোনো page বাদ যায় না।
+- Friends chip কার্যকর filter; load ব্যর্থ হলে Retry button।
+
+Existing connected project-এ `backend/comments-v1.3.sql` ইতিমধ্যে প্রয়োগ হয়েছে, আবার চালাবে না। নতুন project তৈরি করলে base schema-এর পরে এই additive upgrade প্রয়োগ করতে হবে। `backend/verify.sql` এখন ৩৭টি permission এবং data check করে, সব test data rollback হয়।
+
+
 Emon Ahmed-এর জন্য নতুন native Android social app project। Kotlin + Jetpack Compose। Backend: Supabase Auth, PostgreSQL এবং private Storage।
 
 **বর্তমান অবস্থা:** Spark 1.2-এ image caching/compression ও দেওয়া screenshot অনুযায়ী মূল screens-এর layout যুক্ত হয়েছে। প্রথম verification build-এ compilation/lint, ৭টি Android test এবং ৪টি call test পাস করেছে। চূড়ান্ত APK-এর run ও hash `docs/VERIFICATION-1.2.md`-এ আছে।
