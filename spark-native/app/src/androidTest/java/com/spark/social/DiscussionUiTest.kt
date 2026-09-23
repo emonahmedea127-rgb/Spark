@@ -8,6 +8,8 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
+import android.os.ParcelFileDescriptor
 import org.json.JSONArray
 import org.junit.Rule
 import org.junit.Test
@@ -34,7 +36,11 @@ class DiscussionUiTest {
         rule.onNodeWithText("Write a comment…").assertIsDisplayed()
         rule.onNodeWithContentDescription("Like comment").assertIsDisplayed()
         val bitmap=rule.onRoot().captureToImage().asAndroidBitmap()
-        File(rule.activity.getExternalFilesDir(null),"spark-discussion-v1.3.png").outputStream().use {bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG,100,it)}
+        val screenshot=File(rule.activity.getExternalFilesDir(null),"spark-discussion-v1.3.png")
+        screenshot.outputStream().use {bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG,100,it)}
+        // connectedAndroidTest uninstalls the app afterwards; preserve the screenshot outside its directory.
+        val output=InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand("cp ${screenshot.absolutePath} /data/local/tmp/spark-discussion-v1.3.png")
+        ParcelFileDescriptor.AutoCloseInputStream(output).use {it.readBytes()}
     }
     @Test fun longPressOffersSixReactions() {
         show()
