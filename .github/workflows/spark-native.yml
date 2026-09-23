@@ -30,6 +30,8 @@ jobs:
           path: ~/.android/debug.keystore
           key: spark-debug-signing-v1
       - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
       - name: Test call lifecycle
         run: node --test tests/call.test.cjs
       - name: Build and lint

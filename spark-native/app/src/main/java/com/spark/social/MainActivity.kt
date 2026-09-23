@@ -928,6 +928,8 @@ fun ago(raw:String):String=runCatching {
     }
 }
 @Composable fun ProfileScreen(vm:SparkViewModel,id:String) {
+    var previewPhoto by remember { mutableStateOf("") }
+    if(previewPhoto.isNotBlank())PhotoDialog(vm,previewPhoto) { previewPhoto="" }
     var edit by remember {
         mutableStateOf(false)
     }
@@ -971,20 +973,22 @@ fun ago(raw:String):String=runCatching {
                     item {
                         Surface {
                             Column {
-                                Box(Modifier.fillMaxWidth().height(155.dp).background(Color(0xFF235FD5)).clickable(enabled=own) {
-                                    photoField="cover_path"
-                                    pick.launch("image/*")
+                                Box(Modifier.fillMaxWidth().height(190.dp).background(Brush.linearGradient(listOf(Blue,Color(0xFF9755D6)))).clickable {
+                                    if(p.s("cover_path").isNotBlank())previewPhoto=p.s("cover_path")
+                                    else if(own) { photoField="cover_path";pick.launch("image/*") }
                                 }) {
                                     if(p.s("cover_path").isNotBlank())PrivateImage(vm,p.s("cover_path"),Modifier.fillMaxSize())else Text("Make room for good moments.",Modifier.align(Alignment.Center).padding(24.dp),color=Color.White,fontSize=24.sp,fontWeight=FontWeight.Bold)
-                                    if(own)Icon(Icons.Outlined.PhotoCamera,"Change cover",Modifier.align(Alignment.BottomEnd).padding(10.dp),tint=Color.White)
+                                    if(own)IconButton(onClick={photoField="cover_path";pick.launch("image/*")},modifier=Modifier.align(Alignment.BottomEnd).padding(10.dp).background(Color.Black.copy(alpha=.4f),CircleShape)) { Icon(Icons.Outlined.PhotoCamera,"Change cover",tint=Color.White) }
                                 }
                                 Column(Modifier.padding(16.dp)) {
                                     Avatar(vm,p,88) {
-                                        if(own) {
+                                        if(p.s("avatar_path").isNotBlank())previewPhoto=p.s("avatar_path")
+                                        else if(own) {
                                             photoField="avatar_path"
                                             pick.launch("image/*")
                                         }
                                     }
+                                    if(own)TextButton(onClick={photoField="avatar_path";pick.launch("image/*")}) { Text("Change profile photo") }
                                     Text(p.s("display_name"),fontSize=28.sp,fontWeight=FontWeight.Bold)
                                     if(p.s("bio").isNotBlank())Text(p.s("bio"),Modifier.padding(vertical=8.dp))
                                     Rows(vm,"profilefollows:$id", {
@@ -1559,7 +1563,7 @@ fun ago(raw:String):String=runCatching {
                     selected=l
                 }) {
                     Column(Modifier.fillMaxWidth()) {
-                        if(l.s("media_path").isNotBlank())PrivateImage(vm,l.s("media_path"),Modifier.fillMaxWidth().height(220.dp))
+                        if(l.s("media_path").isNotBlank())Media(vm,l.s("media_path"),"image")
                         Column(Modifier.padding(16.dp)) {
                             Text("৳${l.s("price")}"+(if(l.optBoolean("sold"))" · Sold"else""),fontSize=23.sp,fontWeight=FontWeight.Bold)
                             Text(l.s("title"),fontSize=18.sp)

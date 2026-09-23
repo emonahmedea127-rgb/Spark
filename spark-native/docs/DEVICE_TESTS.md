@@ -19,3 +19,14 @@ Status: APK build and lint PASSED. Real-device checks below are NOT RUN and requ
 15. Log out and sign in as a different user. Verify no previous user's messages, session or private media remain visible.
 
 Full Facebook parity, background notifications/calls, Google/phone login, moderation tooling and production load testing remain separate implementation work.
+
+
+## 1.1 media acceptance
+
+- Open a feed photo, verify the complete portrait/landscape image fits with no crop; pinch, double tap, close and Android Back.
+- Repeat for chat, Marketplace, profile avatar and cover images. Confirm own avatar/cover edit controls still work.
+- Open MP4 and WebM from feed and chat. Confirm actual frames, audio, pause, seeking and replay. Leave open longer than one minute and seek again.
+- Disconnect/reconnect network, tap Retry; background the app and verify playback pauses.
+- Open image, text and video stories; verify the whole image, caption, progress, pause, previous/next, last-story close and own-story deletion.
+- Verify denied/private media does not become public, including after blocking or signing out.
+- Compare light/dark feed and story cards on narrow and large screens.

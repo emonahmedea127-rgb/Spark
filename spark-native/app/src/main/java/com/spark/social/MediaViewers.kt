@@ -51,6 +51,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
@@ -94,9 +95,9 @@ data class MediaAccess(val url:String,val headers:Map<String,String>)
         }
     }
     Box(modifier.background(Color(0xFF242839)),contentAlignment=Alignment.Center) {
-        if(request!=null&&!failed)AsyncImage(model=request,contentDescription=if(videoFrame)"Video preview" else "Shared photo",
+        if(request!=null&&!failed)key(attempt) { AsyncImage(model=request,contentDescription=if(videoFrame)"Video preview" else "Shared photo",
             contentScale=contentScale,modifier=Modifier.fillMaxSize(),
-            onSuccess={loading=false;ready()},onError={loading=false;failed=true})
+            onSuccess={loading=false;ready()},onError={loading=false;failed=true}) }
         if(loading&&!videoFrame)CircularProgressIndicator(Modifier.size(24.dp),color=Color.White,strokeWidth=2.dp)
         if(failed&&!videoFrame)TextButton(onClick={access=null;attempt++}) {
             Icon(Icons.Outlined.Refresh,null,tint=Color.White);Text(" Reload photo",color=Color.White)
@@ -214,7 +215,7 @@ internal fun createSparkPlayer(context:Context,access:MediaAccess):ExoPlayer {
                     }
                     override fun onPlayerError(e:PlaybackException) {
                         resumeAt=player.currentPosition
-                        val httpError=generateSequence<Throwable>(e) { it.cause }.filterIsInstance<DefaultHttpDataSource.InvalidResponseCodeException>().firstOrNull()
+                        val httpError=generateSequence<Throwable>(e) { it.cause }.filterIsInstance<HttpDataSource.InvalidResponseCodeException>().firstOrNull()
                         if(httpError?.responseCode in listOf(401,403)&&attempt<1)attempt++
                         else error=when(e.errorCode) {
                             PlaybackException.ERROR_CODE_DECODING_FAILED,PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED->"This video's encoding isn't supported on this device. Try an MP4 with H.264 video and AAC audio."

@@ -4,6 +4,15 @@ Emon Ahmed-এর জন্য নতুন native Android social app project।
 
 **বর্তমান অবস্থা:** APK তৈরি হয়েছে। GitHub Actions-এ `assembleDebug` ও `lintDebug` সফল; ২৭টি database/RLS test এবং ৪টি call logic test পাস। APK ফোনে ইনস্টল করার debug build। বাস্তব ফোনে end-to-end পরীক্ষা এখনও হয়নি।
 
+## 1.1 আপডেট
+
+- নতুন Media3 video player: fullscreen playback, seek, pause এবং retry।
+- Post/chat/Marketplace/profile-এর ছবিতে tap করলে পুরো ছবি fullscreen; pinch ও double-tap zoom।
+- Fullscreen Stories: progress bar, pause, previous/next এবং video story playback।
+- নতুন feed cards, composer, video previews, gradient story cards এবং navigation styling।
+
+পুরোনো 1.0 APK-এর signing key আলাদা হওয়ায় update install না হলে পুরোনো Spark uninstall করে নতুন APK install করো। Supabase-এ থাকা account/posts/messages থাকবে; আবার login করতে হবে।
+
 ## Windows-এ চালানো
 
 1. ZIP extract করে Android Studio-তে `spark-native` folder **Open** করো।
@@ -66,6 +75,7 @@ repository root-এর `.github/workflows/spark-native.yml` যুক্ত আ�
 
 - `app/src/main/java/com/spark/social/Backend.kt`: REST/Auth/Storage client, secure local session।
 - `MainActivity.kt`: Compose screens and app state।
+- `MediaViewers.kt`: authenticated media, fullscreen photos/stories, Media3 video player।
 - `CallActivity.kt`, `app/src/main/assets/call.*`: permission-controlled WebRTC call UI।
 - `backend/schema.sql`: already deployed isolated schema, grants, RLS, private bucket।
 - `backend/verify.sql`: repeatable, rollback-only database tests।
