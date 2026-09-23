@@ -1,4 +1,3 @@
-@file:OptIn(androidx.media3.common.util.UnstableApi::class)
 package com.spark.social
 
 import android.net.Uri
@@ -18,6 +17,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 
 /** Exercises the exact player factory used by feed and fullscreen stories. */
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @RunWith(AndroidJUnit4::class)
 class MediaPlaybackTest {
     @Test fun mp4DecodesRendersSeeksAndStops() = checkPlayback("playback.mp4")

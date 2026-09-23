@@ -1,4 +1,3 @@
-@file:OptIn(androidx.media3.common.util.UnstableApi::class)
 package com.spark.social
 
 import android.content.Context
@@ -170,6 +169,7 @@ data class MediaAccess(val url:String,val headers:Map<String,String>)
     }
 }
 
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 internal fun createSparkPlayer(context:Context,access:MediaAccess):ExoPlayer {
     val http=DefaultHttpDataSource.Factory().setDefaultRequestProperties(access.headers)
         .setUserAgent("Spark/1.1 Android").setConnectTimeoutMs(20000).setReadTimeoutMs(30000)
@@ -182,6 +182,7 @@ internal fun createSparkPlayer(context:Context,access:MediaAccess):ExoPlayer {
         }
 }
 
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable fun SparkVideo(
     vm:SparkViewModel,path:String,modifier:Modifier=Modifier,
     onProgress:(Float)->Unit={},onEnded:()->Unit={},paused:Boolean=false
