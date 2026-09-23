@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.automirrored.outlined.Send
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
@@ -69,42 +70,42 @@ data class MediaAccess(val url:String,val headers:Map<String,String>)
 
 @Composable fun PrivateImage(
     vm:SparkViewModel,path:String,modifier:Modifier=Modifier,
-    contentScale:ContentScale=ContentScale.Crop,videoFrame:Boolean=false,onReady:()->Unit={}
+    contentScale:ContentScale=ContentScale.Crop,videoFrame:Boolean=false,onReady:()->Unit={},targetPx:Int=960
 ) {
-    var access by remember(path) { mutableStateOf<MediaAccess?>(null) }
+    // Never download an entire video just to draw a scrolling thumbnail.
+    if(videoFrame) {
+        Box(modifier.background(Color(0xFF20242B)),contentAlignment=Alignment.Center) {
+            Icon(Icons.Outlined.PlayCircle,"Video",tint=Color.White.copy(alpha=.7f),modifier=Modifier.size(40.dp))
+        };return
+    }
+    var bytes by remember(path,vm.api.userId) { mutableStateOf<ByteArray?>(null) }
     var failed by remember(path) { mutableStateOf(false) }
     var loading by remember(path) { mutableStateOf(true) }
     var attempt by remember(path) { mutableIntStateOf(0) }
     val ready by rememberUpdatedState(onReady)
     LaunchedEffect(path,attempt,vm.api.userId) {
         loading=true;failed=false
-        try { access=vm.api.mediaAccess(path) }
+        try { bytes=FastImages.bytes(vm.api,path) }
         catch(e:CancellationException) { throw e }
         catch(_:Exception) { failed=true;loading=false }
     }
     val context=LocalContext.current
-    val request=remember(access,videoFrame) {
-        access?.let { source ->
-            ImageRequest.Builder(context).data(source.url).apply {
-                source.headers.forEach { (name,value)->addHeader(name,value) }
-                // Private content must not outlive its signed-in user's authorization.
-                diskCachePolicy(CachePolicy.DISABLED);memoryCachePolicy(CachePolicy.DISABLED)
-                if(videoFrame)decoderFactory(VideoFrameDecoder.Factory())
-            }.build()
-        }
+    val loader=remember(context) { FastImages.loader(context) }
+    val request=remember(bytes,targetPx) {
+        bytes?.let { data -> ImageRequest.Builder(context).data(java.nio.ByteBuffer.wrap(data))
+            .memoryCacheKey("${vm.api.userId}:$path:${data.hashCode()}:$targetPx")
+            .size(targetPx,targetPx).diskCachePolicy(CachePolicy.DISABLED).memoryCachePolicy(CachePolicy.ENABLED).build() }
     }
-    Box(modifier.background(Color(0xFF242839)),contentAlignment=Alignment.Center) {
-        if(request!=null&&!failed)key(attempt) { AsyncImage(model=request,contentDescription=if(videoFrame)"Video preview" else "Shared photo",
+    Box(modifier.background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha=.45f)),contentAlignment=Alignment.Center) {
+        if(request!=null&&!failed)key(attempt) { AsyncImage(model=request,imageLoader=loader,contentDescription="Shared photo",
             contentScale=contentScale,modifier=Modifier.fillMaxSize(),
             onSuccess={loading=false;ready()},onError={loading=false;failed=true}) }
-        if(loading&&!videoFrame)CircularProgressIndicator(Modifier.size(24.dp),color=Color.White,strokeWidth=2.dp)
-        if(failed&&!videoFrame)TextButton(onClick={access=null;attempt++}) {
-            Icon(Icons.Outlined.Refresh,null,tint=Color.White);Text(" Reload photo",color=Color.White)
-        }
+        if(loading)Icon(Icons.Outlined.Image,null,tint=MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha=.25f),modifier=Modifier.size(28.dp))
+        if(failed)TextButton(onClick={bytes=null;attempt++}) { Icon(Icons.Outlined.Refresh,null);Text(" Reload") }
     }
 }
 
-@Composable fun Media(vm:SparkViewModel,path:String,type:String,modifier:Modifier=Modifier) {
+@Composable fun Media(vm:SparkViewModel,path:String,type:String,modifier:Modifier=Modifier,post:JSONObject?=null) {
     if(path.isBlank())return
     var open by rememberSaveable(path) { mutableStateOf(false) }
     Box(modifier.fillMaxWidth().height(if(type=="video")280.dp else 340.dp).clickable { open=true }) {
@@ -121,7 +122,7 @@ data class MediaAccess(val url:String,val headers:Map<String,String>)
             }
         }
     }
-    if(open) { if(type=="video")VideoDialog(vm,path) { open=false } else PhotoDialog(vm,path) { open=false } }
+    if(open) { if(type=="video")VideoDialog(vm,path) { open=false } else PhotoDialog(vm,path,post) { open=false } }
 }
 
 @Composable internal fun FullscreenMedia(onClose:()->Unit,content:@Composable BoxScope.()->Unit) {
@@ -138,7 +139,7 @@ data class MediaAccess(val url:String,val headers:Map<String,String>)
     }
 }
 
-@Composable fun PhotoDialog(vm:SparkViewModel,path:String,onClose:()->Unit) {
+@Composable fun PhotoDialog(vm:SparkViewModel,path:String,post:JSONObject?=null,onClose:()->Unit) {
     FullscreenMedia(onClose) {
         var scale by remember(path) { mutableFloatStateOf(1f) }
         var pan by remember(path) { mutableStateOf(Offset.Zero) }
@@ -155,10 +156,18 @@ data class MediaAccess(val url:String,val headers:Map<String,String>)
                 .graphicsLayer { scaleX=scale;scaleY=scale;translationX=pan.x;translationY=pan.y }
                 .transformable(transform).pointerInput(path) {
                     detectTapGestures(onDoubleTap={scale=if(scale>1f)1f else 2.5f;pan=Offset.Zero})
-                },contentScale=ContentScale.Fit)
+                },contentScale=ContentScale.Fit,targetPx=2048)
         }
         ViewerClose("Photo",onClose)
-        Text("Pinch to zoom · Double tap to reset",Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(24.dp),color=Color.White.copy(alpha=.8f),fontSize=12.sp)
+        if(post==null)Text("Pinch to zoom · Double tap to reset",Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(24.dp),color=Color.White.copy(alpha=.8f),fontSize=12.sp)
+        else Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Brush.verticalGradient(listOf(Color.Transparent,Color.Black.copy(alpha=.9f)))).navigationBarsPadding().padding(top=24.dp)) {
+            Row(Modifier.padding(horizontal=16.dp),verticalAlignment=Alignment.CenterVertically) {
+                Avatar(vm,post.child("author"),40)
+                Column(Modifier.padding(start=10.dp)) { Text(post.child("author").s("display_name"),color=Color.White,fontWeight=FontWeight.SemiBold);Text(ago(post.s("created_at")),color=Color.LightGray,fontSize=12.sp) }
+            }
+            if(post.s("body").isNotBlank())Text(post.s("body"),Modifier.padding(16.dp),color=Color.White,maxLines=3)
+            PostActions(vm,post,white=true,onComments={onClose();vm.go("Comments",post.id())})
+        }
     }
 }
 
@@ -185,7 +194,7 @@ internal fun createSparkPlayer(context:Context,access:MediaAccess):ExoPlayer {
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable fun SparkVideo(
     vm:SparkViewModel,path:String,modifier:Modifier=Modifier,
-    onProgress:(Float)->Unit={},onEnded:()->Unit={},paused:Boolean=false
+    onProgress:(Float)->Unit={},onEnded:()->Unit={},paused:Boolean=false,loop:Boolean=false,controls:Boolean=true
 ) {
     var access by remember(path) { mutableStateOf<MediaAccess?>(null) }
     var error by remember(path) { mutableStateOf<String?>(null) }
@@ -229,6 +238,7 @@ internal fun createSparkPlayer(context:Context,access:MediaAccess):ExoPlayer {
                     if(event==Lifecycle.Event.ON_START&&wasPlaying&&!pauseNow)player.play()
                 }
                 player.addListener(listener);lifecycle.addObserver(observer)
+                player.repeatMode=if(loop)Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
                 player.seekTo(resumeAt);player.prepare()
                 player.playWhenReady=!paused&&lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
                 onDispose {
@@ -245,6 +255,7 @@ internal fun createSparkPlayer(context:Context,access:MediaAccess):ExoPlayer {
             }
             AndroidView(factory={ctx->PlayerView(ctx).apply {
                 this.player=player
+                useController=controls
                 resizeMode=AspectRatioFrameLayout.RESIZE_MODE_FIT
                 setShowBuffering(PlayerView.SHOW_BUFFERING_ALWAYS)
                 setShowNextButton(false);setShowPreviousButton(false)
@@ -274,23 +285,22 @@ internal fun createSparkPlayer(context:Context,access:MediaAccess):ExoPlayer {
     var selected by remember { mutableIntStateOf(-1) }
     Rows(vm,"stories",{vm.api.feed("story")}) { stories ->
         Column {
-            Row(Modifier.fillMaxWidth().padding(horizontal=20.dp,vertical=6.dp),verticalAlignment=Alignment.CenterVertically) {
-                Text("Stories",fontWeight=FontWeight.Bold,modifier=Modifier.weight(1f))
-                Text("24 hours of you",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
-            }
             LazyRow(contentPadding=PaddingValues(horizontal=12.dp,vertical=6.dp),horizontalArrangement=Arrangement.spacedBy(10.dp)) {
                 item {
-                    Card(onClick={create=true},modifier=Modifier.width(112.dp).height(176.dp),shape=RoundedCornerShape(22.dp)) {
-                        Column(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(Blue,Color(0xFF9C54E8)))).padding(14.dp),verticalArrangement=Arrangement.SpaceBetween) {
-                            Avatar(vm,vm.me!!,44) { create=true }
-                            Column { Icon(Icons.Outlined.AddCircle,"Create story",tint=Color.White);Spacer(Modifier.height(6.dp));Text("Your story",color=Color.White,fontWeight=FontWeight.Bold) }
+                    Card(onClick={create=true},modifier=Modifier.width(116.dp).height(208.dp),shape=RoundedCornerShape(14.dp)) {
+                        Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha=.3f))) {
+                            val ownPhoto=vm.me!!.s("avatar_path")
+                            if(ownPhoto.isNotBlank())PrivateImage(vm,ownPhoto,Modifier.fillMaxWidth().height(145.dp),targetPx=384)
+                            else Box(Modifier.fillMaxWidth().height(145.dp).background(Color(0xFFDDEBFA)),contentAlignment=Alignment.Center) { Icon(Icons.Outlined.Person,null,Modifier.size(64.dp),tint=Blue) }
+                            Box(Modifier.align(Alignment.BottomCenter).padding(bottom=40.dp).size(42.dp).border(3.dp,MaterialTheme.colorScheme.surface,CircleShape).background(Blue,CircleShape),contentAlignment=Alignment.Center) { Icon(Icons.Outlined.Add,"Create story",tint=Color.White,modifier=Modifier.size(30.dp)) }
+                            Text("Create story",Modifier.align(Alignment.BottomCenter).padding(bottom=14.dp),fontWeight=FontWeight.Bold,fontSize=13.sp)
                         }
                     }
                 }
                 itemsIndexed(stories,key={_,s->s.id()}) { index,story ->
-                    Card(onClick={selected=index},modifier=Modifier.width(112.dp).height(176.dp),shape=RoundedCornerShape(22.dp)) {
+                    Card(onClick={selected=index},modifier=Modifier.width(116.dp).height(208.dp),shape=RoundedCornerShape(14.dp)) {
                         Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(Color(0xFF6766D8),Color(0xFF24265F))))) {
-                            if(story.s("media_path").isNotBlank())PrivateImage(vm,story.s("media_path"),Modifier.fillMaxSize(),videoFrame=story.s("media_type")=="video")
+                            if(story.s("media_path").isNotBlank())PrivateImage(vm,story.s("media_path"),Modifier.fillMaxSize(),videoFrame=story.s("media_type")=="video",targetPx=384)
                             else Text(story.s("body"),Modifier.padding(top=60.dp,start=10.dp,end=10.dp),color=Color.White,maxLines=3,fontSize=13.sp)
                             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent,Color.Black.copy(alpha=.7f)))))
                             Column(Modifier.fillMaxSize().padding(10.dp),verticalArrangement=Arrangement.SpaceBetween) {
@@ -314,6 +324,7 @@ internal fun createSparkPlayer(context:Context,access:MediaAccess):ExoPlayer {
     val next:()->Unit={if(index<stories.lastIndex)index++ else onClose()}
     var confirmDelete by remember { mutableStateOf(false) }
     var paused by remember { mutableStateOf(false) }
+    var reply by remember { mutableStateOf("") }
     FullscreenMedia(onClose) {
         key(story.id()) {
             var progress by remember { mutableFloatStateOf(0f) }
@@ -325,15 +336,15 @@ internal fun createSparkPlayer(context:Context,access:MediaAccess):ExoPlayer {
                 lifecycle.addObserver(observer);onDispose { lifecycle.removeObserver(observer) }
             }
             val video=story.s("media_type")=="video"&&story.s("media_path").isNotBlank()
-            LaunchedEffect(ready,paused,confirmDelete,active) {
-                if(ready&&!video&&!paused&&!confirmDelete&&active) {
+            LaunchedEffect(ready,paused,confirmDelete,active,reply) {
+                if(ready&&!video&&!paused&&!confirmDelete&&active&&reply.isBlank()) {
                     while(progress<1f) { delay(50);progress=(progress+.00625f).coerceAtMost(1f) }
                     next()
                 }
             }
             Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(Color(0xFF302B80),Color(0xFF111328))))) {
-                if(video)SparkVideo(vm,story.s("media_path"),Modifier.fillMaxSize().padding(top=100.dp,bottom=120.dp),onProgress={progress=it},onEnded=next,paused=paused||confirmDelete)
-                else if(story.s("media_path").isNotBlank())PrivateImage(vm,story.s("media_path"),Modifier.fillMaxSize(),ContentScale.Fit,onReady={ready=true})
+                if(video)SparkVideo(vm,story.s("media_path"),Modifier.fillMaxSize().padding(top=100.dp,bottom=120.dp),onProgress={progress=it},onEnded=next,paused=paused||confirmDelete||reply.isNotBlank())
+                else if(story.s("media_path").isNotBlank())PrivateImage(vm,story.s("media_path"),Modifier.fillMaxSize(),ContentScale.Fit,onReady={ready=true},targetPx=1600)
                 else Text(story.s("body"),Modifier.align(Alignment.Center).padding(32.dp),fontSize=30.sp,fontWeight=FontWeight.SemiBold,textAlign=TextAlign.Center,color=Color.White)
                 Column(Modifier.fillMaxWidth().align(Alignment.TopCenter).background(Brush.verticalGradient(listOf(Color.Black.copy(alpha=.75f),Color.Transparent))).statusBarsPadding().padding(12.dp)) {
                     Row(horizontalArrangement=Arrangement.spacedBy(4.dp)) {
@@ -349,8 +360,12 @@ internal fun createSparkPlayer(context:Context,access:MediaAccess):ExoPlayer {
                         IconButton(onClick=onClose) { Icon(Icons.Outlined.Close,"Close story",tint=Color.White) }
                     }
                 }
-                Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Brush.verticalGradient(listOf(Color.Transparent,Color.Black.copy(alpha=.8f)))).navigationBarsPadding().padding(16.dp)) {
+                Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Brush.verticalGradient(listOf(Color.Transparent,Color.Black.copy(alpha=.8f)))).navigationBarsPadding().imePadding().padding(12.dp)) {
                     if(story.s("media_path").isNotBlank()&&story.s("body").isNotBlank())Text(story.s("body"),color=Color.White,maxLines=4,modifier=Modifier.padding(bottom=12.dp))
+                    if(story.s("author_id")!=vm.api.userId)Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
+                        OutlinedTextField(value=reply,onValueChange={reply=it},placeholder={Text("Send message…",color=Color.LightGray)},singleLine=true,shape=CircleShape,modifier=Modifier.weight(1f),colors=OutlinedTextFieldDefaults.colors(focusedTextColor=Color.White,unfocusedTextColor=Color.White,focusedBorderColor=Color.White,unfocusedBorderColor=Color.Gray))
+                        IconButton(enabled=vm.tasks==0,onClick={vm.work { val chat=vm.api.conversation(story.s("author_id"));vm.api.send(chat.id(),reply.ifBlank { "❤️" },null);reply="";vm.notice="Story reply sent." }}) { Icon(if(reply.isBlank())Icons.Outlined.Favorite else Icons.AutoMirrored.Outlined.Send,"Send story reply",tint=Color.White) }
+                    }
                     Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween) {
                         IconButton(onClick={if(index>0)index--},enabled=index>0) { Icon(Icons.AutoMirrored.Outlined.KeyboardArrowLeft,"Previous story",tint=Color.White.copy(alpha=if(index>0)1f else .3f)) }
                         if(story.s("author_id")==vm.api.userId)IconButton(onClick={confirmDelete=true}) { Icon(Icons.Outlined.DeleteOutline,"Delete story",tint=Color.White) }

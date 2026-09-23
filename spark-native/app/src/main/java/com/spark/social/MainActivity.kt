@@ -58,7 +58,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.time.Instant
-internal val Blue=Color(0xFF5265F6)
+internal val Blue=Color(0xFF0866FF)
 data class Page(val name:String,val id:String="",val title:String="")
 class SparkViewModel(app:Application):AndroidViewModel(app) {
     val api=SparkApi.get(app)
@@ -81,7 +81,7 @@ class SparkViewModel(app:Application):AndroidViewModel(app) {
     }
     fun tab(name:String) {
         stack.clear()
-        stack.add(Page(name))
+        stack.add(Page(name,if(name=="Profile")api.userId else ""))
     }
     fun back() {
         if(stack.size>1)stack.removeAt(stack.lastIndex)
@@ -126,12 +126,13 @@ class MainActivity:ComponentActivity() {
 @Composable fun SparkTheme(dark:Boolean,content:@Composable ()->Unit) {
     MaterialTheme(
         colorScheme=if(dark)darkColorScheme(primary=Color(0xFFB6BEFF), background=Color(0xFF10121B),surface=Color(0xFF1C1F2C))
-            else lightColorScheme(primary=Blue,secondary=Color(0xFF8B5CF6),background=Color(0xFFF3F4FA),surface=Color.White, onSurface=Color(0xFF20243D)),
+            else lightColorScheme(primary=Blue,secondary=Color(0xFF0866FF),background=Color.White,surface=Color.White, onSurface=Color(0xFF101214)),
         shapes=Shapes(small=RoundedCornerShape(12.dp),medium=RoundedCornerShape(20.dp),large=RoundedCornerShape(28.dp)),
         content=content
     )
 }
 @Composable fun SparkApp(vm:SparkViewModel) {
+    var newPost by remember { mutableStateOf(false) }
     val snacks=remember {
         SnackbarHostState()
     }
@@ -147,45 +148,9 @@ class MainActivity:ComponentActivity() {
     Scaffold(snackbarHost= {
         SnackbarHost(snacks)
     },topBar= {
-        if(vm.me!=null)TopAppBar(colors=TopAppBarDefaults.topAppBarColors(containerColor=MaterialTheme.colorScheme.background),title= {
-            Text(if(vm.stack.size==1&&vm.page.name=="Home")"spark" else vm.page.title.ifBlank {
-                vm.page.name
-            },color=if(vm.page.name=="Home")Blue else MaterialTheme.colorScheme.onSurface,fontWeight=FontWeight.Bold,fontSize=if(vm.page.name=="Home")32.sp else 23.sp)
-        },navigationIcon= {
-            if(vm.stack.size>1)IconButton(onClick= {
-                vm.back()
-            }) {
-                Icon(Icons.AutoMirrored.Outlined.ArrowBack,"Back")
-            }
-        },actions= {
-            IconButton(onClick= {
-                vm.go("Search")
-            }) {
-                Icon(Icons.Outlined.Search,"Search")
-            }
-            IconButton(onClick= {
-                vm.go("Chats")
-            }) {
-                Icon(Icons.Outlined.Chat,"Messages")
-            }
-            IconButton(onClick= {
-                vm.refresh()
-            }) {
-                Icon(Icons.Outlined.Refresh,"Refresh")
-            }
-        })
+        if(vm.me!=null)SparkTopBar(vm) { newPost=true }
     },bottomBar= {
-        if(vm.me!=null&&vm.stack.size==1)NavigationBar(containerColor=MaterialTheme.colorScheme.surface) {
-            listOf(Triple("Home",Icons.Outlined.Home,"Home"),Triple("Reels",Icons.Outlined.PlayCircle,"Reels"),Triple("Friends",Icons.Outlined.People,"Friends"),Triple("Notifications",Icons.Outlined.Notifications,"Alerts"),Triple("Menu",Icons.Outlined.Menu,"Menu")).forEach {
-                (name,icon,label)->NavigationBarItem(selected=vm.page.name==name,onClick= {
-                    vm.tab(name)
-                },icon= {
-                    Icon(icon,label)
-                },label= {
-                    Text(label,fontSize=11.sp,fontWeight=if(vm.page.name==name)FontWeight.Bold else FontWeight.Normal)
-                })
-            }
-        }
+        if(vm.me!=null&&vm.stack.size==1)SparkBottomBar(vm)
     }) {
         padding->
         Column(Modifier.fillMaxSize().padding(padding)) {
@@ -197,11 +162,12 @@ class MainActivity:ComponentActivity() {
             else {
                 when(vm.page.name) {
                     "Home"->Feed(vm)
-                    "Reels"->Feed(vm,"reel")
+                    "Reels"->ReelsScreen(vm)
                     "Friends"->FriendsScreen(vm)
                     "Notifications"->NotificationsScreen(vm)
                     "Menu"->MenuScreen(vm)
                     "Profile"->ProfileScreen(vm,vm.page.id)
+                    "Profile settings"->ProfileSettingsScreen(vm)
                     "Search"->SearchScreen(vm)
                     "Comments"->CommentsScreen(vm,vm.page.id)
                     "Chats"->ChatsScreen(vm)
@@ -216,6 +182,7 @@ class MainActivity:ComponentActivity() {
         }
     }
     if(vm.me!=null)IncomingCalls(vm)
+    if(newPost&&vm.me!=null)NewPostScreen(vm,"post",null) { newPost=false }
 }
 @Composable fun AuthScreen(vm:SparkViewModel) {
     var register by rememberSaveable {
@@ -391,7 +358,7 @@ class MainActivity:ComponentActivity() {
 }) {
     Box(Modifier.size(size.dp).clip(CircleShape).background(Color(0xFFDCEAFF)).clickable(onClick=onClick),contentAlignment=Alignment.Center) {
         Text(profile.s("display_name").take(1).uppercase(),fontSize=(size/2).sp,color=Blue,fontWeight=FontWeight.Bold)
-        if(profile.s("avatar_path").isNotEmpty())PrivateImage(vm,profile.s("avatar_path"),Modifier.fillMaxSize())
+        if(profile.s("avatar_path").isNotEmpty())PrivateImage(vm,profile.s("avatar_path"),Modifier.fillMaxSize(),targetPx=192)
     }
 }
 fun ago(raw:String):String=runCatching {
@@ -433,39 +400,18 @@ fun ago(raw:String):String=runCatching {
             loading=false
         }
     }
-    LazyColumn(contentPadding=PaddingValues(bottom=20.dp),verticalArrangement=Arrangement.spacedBy(14.dp)) {
-        item {
-            Row(Modifier.fillMaxWidth().padding(horizontal=20.dp,vertical=6.dp),verticalAlignment=Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(if(kind=="reel")"Watch & discover" else "Your daily spark",style=MaterialTheme.typography.headlineSmall,fontWeight=FontWeight.Bold)
-                    Text(if(kind=="reel")"Big stories. Little moments." else "Moments from your people",style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Icon(Icons.Outlined.AutoAwesome,null,tint=Blue,modifier=Modifier.size(28.dp))
+    val listState=androidx.compose.foundation.lazy.rememberLazyListState()
+    LaunchedEffect(listState.firstVisibleItemIndex,posts) {
+        kotlinx.coroutines.delay(300)
+        posts.drop((listState.firstVisibleItemIndex-2).coerceAtLeast(0)+1).take(2)
+            .filter { it.s("media_type")=="image" }.forEach { post ->
+                try { FastImages.bytes(vm.api,post.s("media_path")) } catch(e:CancellationException) { throw e } catch(_:Exception) {}
             }
-        }
-        if(kind=="post"&&community==null)item {
-            Stories(vm)
-        }
-        item {
-            Surface(modifier=Modifier.padding(horizontal=12.dp),shape=RoundedCornerShape(24.dp),tonalElevation=1.dp) {
-                Column {
-                Row(Modifier.fillMaxWidth().clickable {
-                    compose=true
-                }.padding(16.dp),verticalAlignment=Alignment.CenterVertically) {
-                    Avatar(vm,vm.me!!) {
-                        vm.go("Profile",vm.api.userId)
-                    }
-                    Text(if(kind=="reel")"Share a reel…" else "What's on your mind?",modifier=Modifier.weight(1f).padding(horizontal=14.dp),color=MaterialTheme.colorScheme.onSurfaceVariant)
-                    Icon(Icons.Outlined.PhotoLibrary,"Create post",tint=Color(0xFF20A45B))
-                }
-                HorizontalDivider(Modifier.padding(horizontal=16.dp),color=MaterialTheme.colorScheme.outlineVariant.copy(alpha=.45f))
-                Row(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=8.dp),horizontalArrangement=Arrangement.SpaceBetween) {
-                    TextButton(onClick={compose=true}) { Icon(Icons.Outlined.Collections,null,Modifier.size(18.dp)); Text("  Photo / Video") }
-                    FilledTonalButton(onClick={compose=true},contentPadding=PaddingValues(horizontal=18.dp,vertical=8.dp)) { Icon(Icons.Outlined.Add,null,Modifier.size(18.dp));Text(" Create") }
-                }
-                }
-            }
-        }
+    }
+    androidx.compose.material3.pulltorefresh.PullToRefreshBox(isRefreshing=loading&&posts.isNotEmpty(),onRefresh={vm.refresh()}) {
+    LazyColumn(state=listState,contentPadding=PaddingValues(bottom=12.dp),verticalArrangement=Arrangement.spacedBy(0.dp)) {
+        item { FeedComposer(vm) { compose=true } }
+        if(kind=="post"&&community==null)item { Stories(vm) }
         items(posts,key= {
             it.id()
         }) {
@@ -487,81 +433,14 @@ fun ago(raw:String):String=runCatching {
             }
         }
     }
+    }
     if(compose)ComposeDialog(vm,kind,community) {
         compose=false
         offset=0
     }
 }
 @Composable fun ComposeDialog(vm:SparkViewModel,kind:String,community:String?=null,onClose:()->Unit) {
-    var body by rememberSaveable {
-        mutableStateOf("")
-    }
-    var uri by remember {
-        mutableStateOf<Uri?>(null)
-    }
-    var audience by rememberSaveable {
-        mutableStateOf("public")
-    }
-    val pick=rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) {
-        uri=it
-    }
-    AlertDialog(onDismissRequest= {
-        if(vm.tasks==0)onClose()
-    },title= {
-        Text(when(kind) {
-            "story"->"Create story"
-            "reel"->"Create reel"
-            else->"Create post"
-        })
-    },text= {
-        Column(Modifier.verticalScroll(rememberScrollState())) {
-            Row(verticalAlignment=Alignment.CenterVertically) {
-                Avatar(vm,vm.me!!)
-                Text(vm.me!!.s("display_name"),Modifier.padding(12.dp),fontWeight=FontWeight.Bold)
-            }
-            Field(body, {
-                if(it.length<=10000)body=it
-            },"What's on your mind?",4)
-            Row(Modifier.horizontalScroll(rememberScrollState())) {
-                listOf("public","friends","private").forEach {
-                    FilterChip(selected=audience==it,onClick= {
-                        audience=it
-                    },label= {
-                        Text(if(it=="private")"Only me" else it.replaceFirstChar {
-                            c->c.uppercase()
-                        })
-                    },modifier=Modifier.padding(end=5.dp))
-                }
-            }
-            OutlinedButton(onClick= {
-                pick.launch(if(kind=="reel")"video/*" else "*/*")
-            }) {
-                Icon(Icons.Outlined.PhotoLibrary,null)
-                Text(if(uri==null)" Add photo or video" else " Change attachment")
-            }
-            if(uri!=null)TextButton(onClick= {
-                uri=null
-            }) {
-                Text("Remove attachment")
-            }
-            if(kind=="story")Text("Visible for 24 hours",fontSize=12.sp)
-            Text("JPG, PNG, WebP, MP4 or WebM · up to 25 MB",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    },confirmButton= {
-        Button(enabled=vm.tasks==0&&(body.isNotBlank()||uri!=null),onClick= {
-            vm.work {
-                vm.api.createPost(body,uri,kind,audience,community)
-                onClose()
-                vm.refresh()
-            }
-        }) {
-            Text(if(vm.tasks>0)"Publishing…" else "Publish")
-        }
-    },dismissButton= {
-        TextButton(enabled=vm.tasks==0,onClick=onClose) {
-            Text("Cancel")
-        }
-    })
+    NewPostScreen(vm,kind,community,onClose)
 }
 @Composable fun PostCard(vm:SparkViewModel,post:JSONObject) {
     var menu by remember {
@@ -584,9 +463,9 @@ fun ago(raw:String):String=runCatching {
         it.s("user_id")==vm.api.userId
     }
     val author=post.child("author")
-    Surface(modifier=Modifier.padding(horizontal=12.dp),shape=RoundedCornerShape(24.dp),shadowElevation=1.dp,
-        border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant.copy(alpha=.35f))) {
+    Surface {
         Column {
+            HorizontalDivider(thickness=6.dp,color=MaterialTheme.colorScheme.outlineVariant.copy(alpha=.8f))
             Row(Modifier.padding(12.dp),verticalAlignment=Alignment.CenterVertically) {
                 Avatar(vm,author) {
                     vm.go("Profile",post.s("author_id"))
@@ -641,7 +520,7 @@ fun ago(raw:String):String=runCatching {
                 }
             }
             if(post.s("body").isNotBlank())Text(post.s("body"),Modifier.padding(start=14.dp,end=14.dp,bottom=14.dp),fontSize=16.sp)
-            Media(vm,post.s("media_path"),post.s("media_type"))
+            Media(vm,post.s("media_path"),post.s("media_type"),post=post)
             Row(Modifier.fillMaxWidth().padding(12.dp)) {
                 Text("${post.rows("reactions").size} reactions",fontSize=13.sp,color=MaterialTheme.colorScheme.onSurfaceVariant,modifier=Modifier.weight(1f))
                 Text("${post.rows("comments").firstOrNull()?.optInt("count")?:0} comments",fontSize=13.sp,modifier=Modifier.clickable {
@@ -813,8 +692,9 @@ fun ago(raw:String):String=runCatching {
         }
         LazyColumn(verticalArrangement=Arrangement.spacedBy(6.dp)) {
             item {
-                Section("Friends","Find people") {
-                    vm.go("Search")
+                Row(Modifier.padding(horizontal=12.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                    AssistChip(onClick={vm.go("Search")},label={Text("Find friends")},shape=CircleShape)
+                    AssistChip(onClick={vm.notice="${accepted.size} friends · ${incoming.size} requests"},label={Text("Your friends · ${accepted.size}")},shape=CircleShape)
                 }
             }
             item {
@@ -823,27 +703,7 @@ fun ago(raw:String):String=runCatching {
             items(incoming,key= {
                 "i"+it.id()
             }) {
-                f->Column {
-                    Person(vm,f.child("sender"),"Sent you a friend request")
-                    Row(Modifier.fillMaxWidth().padding(horizontal=16.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                        Button(enabled=vm.tasks==0,onClick= {
-                            vm.work {
-                                vm.api.update("friendships","id=eq.${f.id()}",json("status" to "accepted"))
-                                vm.refresh()
-                            }
-                        }) {
-                            Text("Accept")
-                        }
-                        OutlinedButton(onClick= {
-                            vm.work {
-                                vm.api.delete("friendships","id=eq.${f.id()}")
-                                vm.refresh()
-                            }
-                        }) {
-                            Text("Decline")
-                        }
-                    }
-                }
+                f->FriendRequestRow(vm,f)
             }
             if(incoming.isEmpty())item {
                 Text("No new requests",Modifier.padding(16.dp),color=MaterialTheme.colorScheme.onSurfaceVariant)
@@ -928,6 +788,9 @@ fun ago(raw:String):String=runCatching {
     }
 }
 @Composable fun ProfileScreen(vm:SparkViewModel,id:String) {
+    var profileFilter by remember { mutableStateOf("All") }
+    var newStory by remember { mutableStateOf(false) }
+    if(newStory)ComposeDialog(vm,"story") { newStory=false }
     var previewPhoto by remember { mutableStateOf("") }
     if(previewPhoto.isNotBlank())PhotoDialog(vm,previewPhoto) { previewPhoto="" }
     var edit by remember {
@@ -967,29 +830,37 @@ fun ago(raw:String):String=runCatching {
         rows->val p=rows.firstOrNull()
         if(p==null)Empty("Profile unavailable","This profile is unavailable or blocked.")else {
             Rows(vm,"profileposts:$id", {
-                vm.api.feed(extra="&author_id=eq.$id")
+                vm.api.rows("posts","select=*,author:sparknew_profiles!author_id(*),reactions:sparknew_reactions(*),comments:sparknew_comments(count)&author_id=eq.$id&kind=in.(post,reel)&order=created_at.desc&limit=40")
             }) {
                 posts->LazyColumn(verticalArrangement=Arrangement.spacedBy(8.dp)) {
                     item {
                         Surface {
                             Column {
-                                Box(Modifier.fillMaxWidth().height(190.dp).background(Brush.linearGradient(listOf(Blue,Color(0xFF9755D6)))).clickable {
+                                Box(Modifier.fillMaxWidth().height(240.dp).background(Color(0xFFBBCBD8)).clickable {
                                     if(p.s("cover_path").isNotBlank())previewPhoto=p.s("cover_path")
                                     else if(own) { photoField="cover_path";pick.launch("image/*") }
                                 }) {
                                     if(p.s("cover_path").isNotBlank())PrivateImage(vm,p.s("cover_path"),Modifier.fillMaxSize())else Text("Make room for good moments.",Modifier.align(Alignment.Center).padding(24.dp),color=Color.White,fontSize=24.sp,fontWeight=FontWeight.Bold)
+                                    Row(Modifier.fillMaxWidth().align(Alignment.TopCenter).background(Brush.verticalGradient(listOf(Color.Black.copy(alpha=.35f),Color.Transparent))),verticalAlignment=Alignment.CenterVertically) {
+                                        IconButton(onClick={if(vm.stack.size>1)vm.back() else vm.go("Menu")}) { Icon(if(vm.stack.size>1)Icons.AutoMirrored.Outlined.ArrowBack else Icons.Outlined.Menu,"Back or menu",tint=Color.White) }
+                                        Spacer(Modifier.weight(1f))
+                                        IconButton(onClick={vm.go("Search")}) { Icon(Icons.Outlined.Search,"Search",tint=Color.White) }
+                                        if(own)IconButton(onClick={vm.go("Profile settings")}) { Icon(Icons.Outlined.MoreHoriz,"Profile settings",tint=Color.White) }
+                                    }
                                     if(own)IconButton(onClick={photoField="cover_path";pick.launch("image/*")},modifier=Modifier.align(Alignment.BottomEnd).padding(10.dp).background(Color.Black.copy(alpha=.4f),CircleShape)) { Icon(Icons.Outlined.PhotoCamera,"Change cover",tint=Color.White) }
                                 }
-                                Column(Modifier.padding(16.dp)) {
-                                    Avatar(vm,p,88) {
+                                Column(Modifier.fillMaxWidth().padding(horizontal=16.dp),horizontalAlignment=Alignment.CenterHorizontally) {
+                                    Box(Modifier.offset(y=(-48).dp).border(5.dp,MaterialTheme.colorScheme.surface,CircleShape).padding(5.dp)) {
+                                    Avatar(vm,p,146) {
                                         if(p.s("avatar_path").isNotBlank())previewPhoto=p.s("avatar_path")
                                         else if(own) {
                                             photoField="avatar_path"
                                             pick.launch("image/*")
                                         }
                                     }
-                                    if(own)TextButton(onClick={photoField="avatar_path";pick.launch("image/*")}) { Text("Change profile photo") }
-                                    Text(p.s("display_name"),fontSize=28.sp,fontWeight=FontWeight.Bold)
+                                    if(own)IconButton(onClick={photoField="avatar_path";pick.launch("image/*")},modifier=Modifier.align(Alignment.BottomEnd).background(MaterialTheme.colorScheme.surfaceVariant,CircleShape)) { Icon(Icons.Outlined.PhotoCamera,"Change profile photo") }
+                                    }
+                                    Text(p.s("display_name"),modifier=Modifier.offset(y=(-26).dp),fontSize=28.sp,fontWeight=FontWeight.Bold)
                                     if(p.s("bio").isNotBlank())Text(p.s("bio"),Modifier.padding(vertical=8.dp))
                                     Rows(vm,"profilefollows:$id", {
                                         vm.api.rows("follows","or=(follower_id.eq.$id,following_id.eq.$id)")
@@ -1009,11 +880,9 @@ fun ago(raw:String):String=runCatching {
                                             }
                                         }
                                     }
-                                    if(own)Button(onClick= {
-                                        edit=true
-                                    }) {
-                                        Icon(Icons.Outlined.Edit,null)
-                                        Text(" Edit profile")
+                                    if(own)Row(Modifier.fillMaxWidth().padding(vertical=16.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                                        Button(onClick={edit=true},modifier=Modifier.weight(1f),shape=RoundedCornerShape(8.dp)) { Icon(Icons.Outlined.Edit,null,Modifier.size(18.dp));Text(" Edit profile") }
+                                        FilledTonalButton(onClick={newStory=true},modifier=Modifier.weight(1f),shape=RoundedCornerShape(8.dp)) { Icon(Icons.Outlined.AddCircleOutline,null,Modifier.size(18.dp));Text(" Add to story") }
                                     }else {
                                         Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                                             Button(onClick= {
@@ -1063,9 +932,12 @@ fun ago(raw:String):String=runCatching {
                         }
                     }
                     item {
-                        Section("Posts")
+                        Row(Modifier.fillMaxWidth().padding(horizontal=12.dp),horizontalArrangement=Arrangement.spacedBy(10.dp)) {
+                            listOf("All","Reels","Photos").forEach { label -> FilterChip(selected=profileFilter==label,onClick={profileFilter=label},shape=CircleShape,label={Text(label,fontWeight=FontWeight.SemiBold)}) }
+                            if(own)TextButton(onClick={vm.go("Profile settings")}) { Text("More") }
+                        }
                     }
-                    items(posts,key= {
+                    items(posts.filter { profileFilter=="All" || (profileFilter=="Reels"&&it.s("media_type")=="video") || (profileFilter=="Photos"&&it.s("media_type")=="image") },key= {
                         it.id()
                     }) {
                         PostCard(vm,it)
@@ -1096,6 +968,7 @@ fun ago(raw:String):String=runCatching {
     }) {
         vm.work {
             vm.api.insert("blocks",json("owner_id" to vm.api.userId,"target_id" to id))
+            FastImages.clear()
             block=false
             vm.back()
             vm.refresh()

@@ -177,6 +177,7 @@ class SparkApi private constructor(private val context: Context) {
         } finally {
             session=null
             vault.save(null)
+            FastImages.clear()
         }
     }
     suspend fun ensureProfile(name: String = ""): JSONObject {
@@ -203,11 +204,11 @@ class SparkApi private constructor(private val context: Context) {
     }
     suspend fun upload(uri: Uri): Pair<String,String> = withContext(Dispatchers.IO) {
         fresh()
-        val mime = context.contentResolver.getType(uri) ?: "image/jpeg"
+        var mime = context.contentResolver.getType(uri) ?: "image/jpeg"
         require(mime in listOf("image/jpeg","image/png","image/webp","video/mp4","video/webm")) {
             "Choose a JPG, PNG, WebP, MP4 or WebM file."
         }
-        val bytes = context.contentResolver.openInputStream(uri)?.use {
+        var bytes = context.contentResolver.openInputStream(uri)?.use {
             input ->
             val output = java.io.ByteArrayOutputStream()
             val buffer = ByteArray(8192)
@@ -221,6 +222,10 @@ class SparkApi private constructor(private val context: Context) {
             }
             output.toByteArray()
         } ?: error("Cannot read this file.")
+        if(mime.startsWith("image/")) {
+            val optimized=optimizePhoto(bytes)
+            bytes=optimized.first;mime=optimized.second
+        }
         val ext = mapOf("image/jpeg" to "jpg","image/png" to "png","image/webp" to "webp","video/mp4" to "mp4","video/webm" to "webm")[mime]
         val path = "$userId/${UUID.randomUUID()}.$ext"
         raw("/storage/v1/object/${Backend.BUCKET}/$path", "POST",bytes,mime)
@@ -231,6 +236,14 @@ class SparkApi private constructor(private val context: Context) {
     }
     // Refreshed user JWT keeps private media behind existing Storage RLS.
     // Unlike a 60-second signed URL, later video range requests remain authorized.
+    suspend fun downloadMedia(path:String):ByteArray=withContext(Dispatchers.IO) {
+        val access=mediaAccess(path)
+        val request=Request.Builder().url(access.url).apply { access.headers.forEach { (k,v)->header(k,v) } }.build()
+        client.newCall(request).execute().use { response ->
+            check(response.isSuccessful) { "Photo unavailable (${response.code})." }
+            response.body?.bytes()?:error("Empty image.")
+        }
+    }
     suspend fun mediaAccess(path: String): MediaAccess {
         require(path.isNotBlank()) { "Media is missing." }
         fresh()
