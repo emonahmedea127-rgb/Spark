@@ -67,6 +67,7 @@ internal fun croppedBitmap(bitmap:Bitmap,frame:IntSize,zoom:Float,pan:Offset,cov
     var pan by remember(uri) { mutableStateOf(Offset.Zero) }
     var frame by remember { mutableStateOf(IntSize.Zero) }
     var busy by remember { mutableStateOf(false) }
+    var saveError by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(uri) {
         try { bitmap=withContext(Dispatchers.IO) {
             val bytes=context.contentResolver.openInputStream(uri)?.use { input->
@@ -100,6 +101,7 @@ internal fun croppedBitmap(bitmap:Bitmap,frame:IntSize,zoom:Float,pan:Offset,cov
                             }
                         }
                     }) {
+                        if(size.width<1f||size.height<1f)return@Canvas
                         val t=cropTransform(bm.width,bm.height,size.width.roundToInt(),size.height.roundToInt(),zoom,pan)
                         drawImage(image,dstOffset=IntOffset(t.left.roundToInt(),t.top.roundToInt()),dstSize=IntSize((bm.width*t.scale).roundToInt(),(bm.height*t.scale).roundToInt()))
                         if(!cover) {
@@ -113,13 +115,14 @@ internal fun croppedBitmap(bitmap:Bitmap,frame:IntSize,zoom:Float,pan:Offset,cov
                 }else if(failed!=null)Text(failed!!,color=Color.White,modifier=Modifier.padding(24.dp))
                 else CircularProgressIndicator(color=Color.White)
             }
+            saveError?.let {Text(it,color=Color(0xFFFFB4AB),modifier=Modifier.padding(horizontal=24.dp,vertical=8.dp))}
             Text("Drag to position · Pinch or slide to zoom",color=Color.White,modifier=Modifier.align(Alignment.CenterHorizontally).padding(12.dp))
             Slider(value=zoom,onValueChange={zoom=it},valueRange=1f..4f,enabled=!busy&&bitmap!=null,modifier=Modifier.padding(horizontal=28.dp))
             TextButton(enabled=!busy,onClick={zoom=1f;pan=Offset.Zero},modifier=Modifier.align(Alignment.CenterHorizontally)) {Text("Reset",color=Color.White)}
             Text("Your updated photo will also be shared to your public feed.",color=Color.LightGray,modifier=Modifier.padding(horizontal=24.dp,vertical=8.dp))
             Button(enabled=!busy&&bitmap!=null&&frame.width>0,onClick={
                 val bm=bitmap!!;val cropFrame=frame;val cropZoom=zoom;val cropPan=pan
-                busy=true
+                busy=true;saveError=null
                 vm.work {
                     var path:String?=null;var committed=false
                     try {
@@ -132,7 +135,9 @@ internal fun croppedBitmap(bitmap:Bitmap,frame:IntSize,zoom:Float,pan:Offset,cov
                         committed=true
                         vm.me=vm.me?.let {org.json.JSONObject(it.toString()).put(field,path)}
                         vm.refresh();vm.notice="Photo updated and shared to your feed.";onClose()
-                    }catch(e:Exception) {
+                    }catch(e:CancellationException) {throw e}
+                    catch(e:Exception) {
+                        saveError=e.message?:"Couldn't update this photo. Try again."
                         if(!committed&&path!=null&&(e is IllegalArgumentException||(e is ApiException&&e.status in 400..499)))runCatching {vm.api.removeMedia(path!!)}
                         throw e
                     }finally {busy=false}

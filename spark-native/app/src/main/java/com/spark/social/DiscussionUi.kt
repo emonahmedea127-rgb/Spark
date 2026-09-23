@@ -65,10 +65,14 @@ internal fun compactCount(n:Int):String=when {
     }
     Row(Modifier.fillMaxWidth().padding(horizontal=12.dp),verticalAlignment=Alignment.CenterVertically) {
         Box {
-            Row(Modifier.heightIn(min=48.dp).combinedClickable(enabled=!saving,onClick={react(mine?:"like")},onLongClick={picking=true},onLongClickLabel="Choose a reaction").padding(end=18.dp),verticalAlignment=Alignment.CenterVertically) {
+            Row(verticalAlignment=Alignment.CenterVertically) {
+                Box(Modifier.size(48.dp).combinedClickable(enabled=!saving,onClick={react(mine?:"like")},onLongClick={picking=true},onLongClickLabel="Choose a reaction"),contentAlignment=Alignment.Center) {
                 if(mine!=null&&mine!="like")Text(reactionEmoji[mine]?:"👍",fontSize=22.sp,modifier=Modifier.semantics { contentDescription="Your reaction: $mine" })
                 else Icon(Icons.Outlined.ThumbUp,"Like; hold to choose reaction",Modifier.size(25.dp),tint=if(mine!=null)Blue else ink)
-                Text(" ${compactCount(reactions.size)}",color=if(mine!=null)Blue else ink,fontSize=15.sp,modifier=Modifier.clickable {showPeople=true}.semantics {contentDescription="See who reacted"})
+                }
+                Box(Modifier.heightIn(min=48.dp).clickable {showPeople=true}.padding(end=14.dp).semantics {contentDescription="See who reacted"},contentAlignment=Alignment.Center) {
+                    Text(" ${compactCount(reactions.size)}",color=if(mine!=null)Blue else ink,fontSize=15.sp)
+                }
             }
             DropdownMenu(expanded=picking,onDismissRequest={picking=false}) {
                 Row(Modifier.padding(horizontal=4.dp)) { reactionEmoji.forEach { (value,emoji)->
