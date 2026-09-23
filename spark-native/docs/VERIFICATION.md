@@ -1,10 +1,10 @@
 # Spark verification report
 
-Date: 22 September 2026 (UTC)
+Updated: 23 September 2026 (UTC)
 
 ## Delivered state
 
-Native Kotlin/Compose Android source project, deployed Supabase backend and reproducible validation/build instructions. **No APK was produced and no Android compilation or device test passed in this environment.** This is not a verified production release or complete Facebook feature parity.
+Native Kotlin/Compose Android source project, deployed Supabase backend and reproducible validation/build instructions. **APK built successfully in GitHub Actions. Android compilation and lint passed.** The local network restriction was resolved by using the connected GitHub runner. Real-device acceptance testing is still not performed. This is a debug build, not a production release or complete Facebook feature parity.
 
 ## Backend deployed
 
@@ -52,7 +52,7 @@ Media paths contain the owner's UUID and generated filename. Read authorization 
 
 Other checks completed: JavaScript syntax, parsing Android XML, and a comment/string-aware Kotlin delimiter scan. The delimiter scan found and enabled correction of missing UI braces. It is not a Kotlin compiler or type checker.
 
-## Build result and hard blocker
+## Historical local build attempt (superseded by successful cloud build)
 
 `./gradlew :app:assembleDebug --console=plain` failed before project compilation while downloading Gradle 8.11.1:
 
@@ -60,7 +60,7 @@ Other checks completed: JavaScript syntax, parsing Android XML, and a comment/st
 java.net.SocketException: Network is unreachable
 ```
 
-This environment has no Android SDK or complete JDK compiler. No emulator or attached Android phone is available. `build-attempt.log` preserves the actual failure. The included GitHub Actions workflow has not been executed. Compilation, Android lint, installation and end-to-end UI/Auth/Storage/real-call tests remain unverified.
+This environment has no Android SDK or complete JDK compiler. No emulator or attached Android phone is available. `build-attempt.log` preserves that earlier local failure. A later GitHub Actions build successfully completed compilation, APK packaging and Android lint. Installation and end-to-end UI/Auth/Storage/real-call tests remain unverified.
 
 ## Code corrections during review
 
@@ -88,3 +88,14 @@ See `README.md` and `DEVICE_TESTS.md`. In particular: no background push or inco
 - https://supabase.com/docs/guides/auth/passwords
 - https://supabase.com/docs/guides/storage/serving/downloads
 - https://supabase.com/changelog?types=breaking-change
+
+## Successful APK build
+
+- Run: https://github.com/emonahmedea127-rgb/Spark/actions/runs/35792630432
+- App source commit: `cbe962346d2fe9be5f83690764fe3782fd5ee377`
+- Command: `./gradlew :app:assembleDebug :app:lintDebug --console=plain`
+- Result: `BUILD SUCCESSFUL in 3m 54s`
+- APK: `Spark.apk`, 18,304,132 bytes.
+- SHA-256: `5f0023e522bb546638d7062faa7888b844cd1e6a6ef3d795533828abed1d30f5`
+- Downloaded artifact digest matched GitHub's SHA-256. Archive CRC checks passed; AndroidManifest.xml/classes.dex and an APK v2 signing block were present. No independent cryptographic verification or actual phone installation is claimed.
+- Packaged source code hashes match the successfully built commit; documentation was updated afterwards.

@@ -2,11 +2,11 @@
 
 Emon Ahmed-এর জন্য নতুন native Android social app project। Kotlin + Jetpack Compose। Backend: Supabase Auth, PostgreSQL এবং private Storage।
 
-**বর্তমান অবস্থা:** backend deployed এবং ২৭টি database/RLS পরীক্ষা পাস। কলের JavaScript-এর ৪টি automated test পাস। Android compilation, emulator/phone test এবং installable APK এখনও যাচাই হয়নি। এই পরিবেশে Android SDK নেই, Gradle download network restriction-এ ব্যর্থ হয়েছে। এটি source delivery, পরীক্ষিত release APK নয়।
+**বর্তমান অবস্থা:** APK তৈরি হয়েছে। GitHub Actions-এ `assembleDebug` ও `lintDebug` সফল; ২৭টি database/RLS test এবং ৪টি call logic test পাস। APK ফোনে ইনস্টল করার debug build। বাস্তব ফোনে end-to-end পরীক্ষা এখনও হয়নি।
 
 ## Windows-এ চালানো
 
-1. ZIP extract করে Android Studio-তে `spark-android` folder **Open** করো।
+1. ZIP extract করে Android Studio-তে `spark-native` folder **Open** করো।
 2. Android SDK Platform **35**, Build Tools **35.0.0** এবং JDK **17** install/select করো। Android Studio-র Gradle JDK setting-এ JDK 17 দাও।
 3. Gradle sync শেষ হতে দাও। প্রথমবার internet লাগবে।
 4. Android phone-এ Developer options → USB debugging চালু করে USB দিয়ে connect করো।
@@ -34,7 +34,7 @@ Successful build-এর পরে APK: `app/build/outputs/apk/debug/app-debug.ap
 
 ## GitHub দিয়ে build
 
-`.github/workflows/android.yml` যুক্ত আছে। নিজের GitHub repository-র root-এ project folder-এর **ভেতরের ফাইলগুলো**, `.github`-সহ upload/push করো। Actions → **Build Spark Android** → **Run workflow**। সফল হলে **Spark-debug-APK** artifact download করো। এই workflow এখান থেকে run করা হয়নি এবং কোনো GitHub repository তৈরি করা হয়নি।
+repository root-এর `.github/workflows/spark-native.yml` যুক্ত আছে। ZIP-এর `.github` এবং `spark-native` folder repository root-এ রাখো। Actions → **Build Spark Android** → **Run workflow**। সফল হলে **Spark-debug-APK** artifact download করো। এই workflow সংযুক্ত `emonahmedea127-rgb/Spark` repository-র `codex/spark-native-apk` branch-এ চালানো হয়েছে। Build run: https://github.com/emonahmedea127-rgb/Spark/actions/runs/35792630432
 
 ## কোডে যুক্ত ফিচার
 
@@ -51,7 +51,7 @@ Successful build-এর পরে APK: `app/build/outputs/apk/debug/app-debug.ap
 
 ## সীমাবদ্ধতা, যেগুলো জানা জরুরি
 
-- Android app এখনো compile বা ফোনে চালিয়ে পরীক্ষা করা হয়নি। Build/lint বা runtime সমস্যা থাকলে তা আগে ঠিক করতে হবে।
+- Android compilation ও lint সফল। বাস্তব ফোনে UI, Auth, upload ও কলের end-to-end পরীক্ষা বাকি।
 - Call logic tests বাস্তব দুই ফোনের audio/video test নয়। বর্তমানে STUN আছে; restrictive mobile/Wi-Fi networks-এর জন্য TURN service configuration প্রয়োজন।
 - Calls শুধু app সামনে খোলা থাকলে আসে; call screen background-এ গেলে call শেষ হয়। Background push/ringing এবং foreground call service নেই।
 - Chat প্রতি ৪ সেকেন্ডে এবং incoming calls প্রতি ৭ সেকেন্ডে foreground polling করে। Feed/notifications refresh button দিয়ে update হয়। Supabase Realtime subscriptions এই version-এ নেই।

@@ -1,6 +1,6 @@
 # Device acceptance tests
 
-Status: NOT RUN. Requires a successful APK build and two Android devices/accounts.
+Status: APK build and lint PASSED. Real-device checks below are NOT RUN and require two Android devices/accounts.
 
 1. Build with JDK 17 / SDK 35; resolve all compilation and blocking lint failures.
 2. Install on Android 8+ and Android 15+, including a small-screen phone. Verify keyboard, scrolling, rotation, Back and permission dialogs.
