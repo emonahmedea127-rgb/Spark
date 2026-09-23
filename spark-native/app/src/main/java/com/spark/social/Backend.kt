@@ -264,7 +264,10 @@ class SparkApi private constructor(private val context: Context) {
         }
         return if(url.startsWith("http")) url else Backend.URL+"/storage/v1"+url
     }
-    suspend fun feed(kind: String="post", extra: String="", offset: Int=0) = rows("posts", "select=*,author:sparknew_profiles!author_id(*),reactions:sparknew_reactions(*),comments:sparknew_comments(count)&kind=eq.$kind&order=created_at.desc,id.desc&limit=20&offset=$offset$extra")
+    // Embed a single comment per post so scrolling never causes a request per card.
+    val postSelect = "select=*,author:sparknew_profiles!author_id(*),reactions:sparknew_reactions(*),comments:sparknew_comments(count),preview:sparknew_comments(id,post_id,author_id,body,created_at,parent_id,author:sparknew_profiles!author_id(*),likes:sparknew_comment_likes(user_id))&preview.order=created_at.desc,id.desc&preview.limit=1"
+    suspend fun comments(post: String, offset: Int = 0) = rows("comments", "select=*,author:sparknew_profiles!author_id(*),likes:sparknew_comment_likes(user_id),parent:sparknew_comments!parent_id(body,author:sparknew_profiles!author_id(display_name))&post_id=eq.$post&order=created_at.desc,id.desc&limit=50&offset=$offset")
+    suspend fun feed(kind: String="post", extra: String="", offset: Int=0) = rows("posts", "$postSelect&kind=eq.$kind&order=created_at.desc,id.desc&limit=20&offset=$offset$extra")
     suspend fun createPost(body: String, uri: Uri?, kind: String, visibility: String, community: String?=null) {
         require(body.isNotBlank()||uri!=null) {
             "Write something or choose a photo/video."

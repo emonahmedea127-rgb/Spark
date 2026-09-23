@@ -62,7 +62,9 @@ jobs:
           arch: x86_64
           disable-animations: true
           working-directory: spark-native
-          script: ./gradlew :app:connectedDebugAndroidTest --console=plain
+          script: |
+            ./gradlew :app:connectedDebugAndroidTest --console=plain
+            adb pull /sdcard/Android/data/com.spark.social/files/spark-discussion-v1.3.png app/build/reports/spark-discussion-v1.3.png
       - uses: actions/upload-artifact@v4
         if: always()
         with:

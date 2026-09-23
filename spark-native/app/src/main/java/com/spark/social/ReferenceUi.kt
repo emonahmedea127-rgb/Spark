@@ -36,6 +36,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import org.json.JSONObject
+import kotlinx.coroutines.launch
 
 @Composable fun SparkTopBar(vm:SparkViewModel,onCreate:()->Unit) {
     if(vm.page.name in listOf("Reels","Profile"))return
@@ -141,39 +142,18 @@ import org.json.JSONObject
     }
 }
 
-@Composable fun PostActions(vm:SparkViewModel,post:JSONObject,white:Boolean=false,onComments:()->Unit={vm.go("Comments",post.id())}) {
-    val context=LocalContext.current
-    var liked by remember(post) { mutableStateOf(post.rows("reactions").any { it.s("user_id")==vm.api.userId }) }
-    var count by remember(post) { mutableIntStateOf(post.rows("reactions").size) }
-    val ink=if(white)Color.White else MaterialTheme.colorScheme.onSurfaceVariant
-    Row(Modifier.fillMaxWidth().padding(horizontal=10.dp),verticalAlignment=Alignment.CenterVertically) {
-        TextButton(enabled=vm.tasks==0,onClick={vm.work {
-            if(liked)vm.api.delete("reactions","post_id=eq.${post.id()}&user_id=eq.${vm.api.userId}") else vm.api.insert("reactions",json("post_id" to post.id(),"user_id" to vm.api.userId,"reaction" to "like"))
-            count+=if(liked)-1 else 1;liked=!liked
-        }}) { Icon(Icons.Outlined.ThumbUp,"Like",tint=if(liked)Blue else ink,modifier=Modifier.size(24.dp));Text(" $count",color=ink) }
-        TextButton(onClick=onComments) { Icon(Icons.Outlined.ChatBubbleOutline,"Comments",tint=ink,modifier=Modifier.size(24.dp));Text(" ${post.rows("comments").firstOrNull()?.optInt("count")?:0}",color=ink) }
-        IconButton(onClick={context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply { type="text/plain";putExtra(Intent.EXTRA_TEXT,"${post.child("author").s("display_name")} on Spark:\n${post.s("body")}") },"Share post"))}) { Icon(Icons.Outlined.Share,"Share",tint=ink) }
-        IconButton(onClick={vm.work { if(vm.api.rows("saved","post_id=eq.${post.id()}&user_id=eq.${vm.api.userId}").isEmpty())vm.api.insert("saved",json("post_id" to post.id(),"user_id" to vm.api.userId));vm.notice="Post saved." }}) { Icon(Icons.Outlined.BookmarkBorder,"Save",tint=ink) }
-    }
-}
-
 @Composable fun ReelsScreen(vm:SparkViewModel) {
     var create by remember { mutableStateOf(false) }
-    var offset by rememberSaveable { mutableIntStateOf(0) }
-    var videos by remember { mutableStateOf(emptyList<JSONObject>()) }
-    var loading by remember { mutableStateOf(false) }
-    var more by remember { mutableStateOf(true) }
-    LaunchedEffect(offset,vm.revision) {
-        loading=true
-        try {
-            val next=vm.api.feed("reel",offset=offset)
-            videos=if(offset==0)next else (videos+next).distinctBy { it.id() };more=next.size==20
-        }catch(e:Exception) { if(e is kotlinx.coroutines.CancellationException)throw e;vm.notice=e.message }finally { loading=false }
-    }
+    val feed=remember { FeedPager {vm.api.feed("reel",offset=it)} }
+    val scope=rememberCoroutineScope()
+    val videos=feed.posts
+    val loading=feed.loading
+    val more=feed.more
+    LaunchedEffect(vm.revision) {feed.load(refresh=true)}
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         if(videos.isNotEmpty()) {
             val pager=rememberPagerState(pageCount={videos.size})
-            LaunchedEffect(pager.currentPage,videos.size) { if(pager.currentPage>=videos.lastIndex-2&&more&&!loading)offset+=20 }
+            LaunchedEffect(pager.currentPage,videos.size) { if(pager.currentPage>=videos.lastIndex-2&&more&&feed.error==null)feed.load() }
             VerticalPager(state=pager,key={videos[it].id()},modifier=Modifier.fillMaxSize()) { index ->
                 val post=videos[index]
                 var paused by remember(post.id()) { mutableStateOf(false) }
@@ -191,7 +171,8 @@ import org.json.JSONObject
                     }
                 }
             }
-        }else if(!loading)Column(Modifier.align(Alignment.Center),horizontalAlignment=Alignment.CenterHorizontally) { Icon(Icons.Outlined.SmartDisplay,null,tint=Color.White,modifier=Modifier.size(60.dp));Text("Share your first reel",color=Color.White,modifier=Modifier.padding(16.dp));Button(onClick={create=true}) { Text("Create reel") } }
+        }else if(!loading&&feed.error==null)Column(Modifier.align(Alignment.Center),horizontalAlignment=Alignment.CenterHorizontally) { Icon(Icons.Outlined.SmartDisplay,null,tint=Color.White,modifier=Modifier.size(60.dp));Text("Share your first reel",color=Color.White,modifier=Modifier.padding(16.dp));Button(onClick={create=true}) { Text("Create reel") } }
+        if(feed.error!=null)Button(onClick={scope.launch {feed.load(refresh=videos.isEmpty())}},modifier=Modifier.align(Alignment.Center)) {Text("Couldn't load reels. Retry")}
         if(loading&&videos.isEmpty())CircularProgressIndicator(Modifier.align(Alignment.Center),color=Color.White)
         Row(Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(Color.Black.copy(alpha=.6f),Color.Transparent))).padding(8.dp),verticalAlignment=Alignment.CenterVertically) {
             IconButton(onClick={vm.go("Menu")}) { Icon(Icons.Outlined.Menu,"Menu",tint=Color.White) }
@@ -200,7 +181,7 @@ import org.json.JSONObject
             IconButton(onClick={vm.go("Search")}) { Icon(Icons.Outlined.Search,"Search",tint=Color.White) }
         }
     }
-    if(create)NewPostScreen(vm,"reel",null) { create=false;offset=0 }
+    if(create)NewPostScreen(vm,"reel",null) { create=false }
 }
 
 @Composable fun ProfileSettingsScreen(vm:SparkViewModel) {

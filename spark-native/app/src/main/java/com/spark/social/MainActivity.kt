@@ -348,7 +348,10 @@ class MainActivity:ComponentActivity() {
         }
     }
     if(failed) {
-        Empty("Couldn't load this page","Check your connection and tap Refresh.",Icons.Outlined.CloudOff)
+        Column(horizontalAlignment=Alignment.CenterHorizontally) {
+            Empty("Couldn't load this page","Check your connection and retry.",Icons.Outlined.CloudOff)
+            Button(onClick={vm.refresh()}) { Text("Retry") }
+        }
     }else if(data==null) {
         Box(Modifier.fillMaxWidth().padding(40.dp),contentAlignment=Alignment.Center) {
             CircularProgressIndicator()
@@ -375,32 +378,12 @@ fun ago(raw:String):String=runCatching {
     var compose by remember {
         mutableStateOf(false)
     }
-    var offset by remember(kind,extra) {
-        mutableIntStateOf(0)
-    }
-    var posts by remember(kind,extra) {
-        mutableStateOf(emptyList<JSONObject>())
-    }
-    var loading by remember {
-        mutableStateOf(true)
-    }
-    var more by remember {
-        mutableStateOf(true)
-    }
-    LaunchedEffect(kind,extra,offset,vm.revision) {
-        loading=true
-        try {
-            val loaded = mutableListOf<JSONObject>()
-            for (pageOffset in 0..offset step 20) loaded.addAll(vm.api.feed(kind,extra,pageOffset))
-            posts=loaded.distinctBy { it.id() }
-            more=loaded.size >= offset+20
-        }catch(e:Exception) {
-            if(e is CancellationException)throw e
-            vm.notice=e.message
-        }finally {
-            loading=false
-        }
-    }
+    val pager=remember(kind,extra) { FeedPager { vm.api.feed(kind,extra,it) } }
+    val scope=rememberCoroutineScope()
+    val posts=pager.posts
+    val loading=pager.loading
+    val more=pager.more
+    LaunchedEffect(kind,extra,vm.revision) { pager.load(refresh=true) }
     val listState=androidx.compose.foundation.lazy.rememberLazyListState()
     LaunchedEffect(listState.firstVisibleItemIndex,posts) {
         kotlinx.coroutines.delay(300)
@@ -423,12 +406,13 @@ fun ago(raw:String):String=runCatching {
                 CircularProgressIndicator()
             }
         }
-        if(posts.isEmpty()&&!loading)item {
+        if(posts.isEmpty()&&!loading&&pager.error==null)item {
             Empty(if(kind=="reel")"Your next favorite moment" else "Start the conversation",if(kind=="reel")"Share your first video reel." else "There are no posts yet. Share a moment or invite a friend.")
         }
-        if(more&&posts.isNotEmpty())item {
+        if(pager.error!=null)item { TextButton(onClick={scope.launch {pager.load(refresh=posts.isEmpty())}},modifier=Modifier.fillMaxWidth()) {Text("Couldn't load posts. Retry")} }
+        if(more&&posts.isNotEmpty()&&pager.error==null)item {
             TextButton(enabled=!loading,onClick= {
-                offset+=20
+                scope.launch { pager.load() }
             },modifier=Modifier.fillMaxWidth()) {
                 Text("Load more")
             }
@@ -437,7 +421,6 @@ fun ago(raw:String):String=runCatching {
     }
     if(compose)ComposeDialog(vm,kind,community) {
         compose=false
-        offset=0
     }
 }
 @Composable fun ComposeDialog(vm:SparkViewModel,kind:String,community:String?=null,onClose:()->Unit) {
@@ -445,9 +428,6 @@ fun ago(raw:String):String=runCatching {
 }
 @Composable fun PostCard(vm:SparkViewModel,post:JSONObject) {
     var menu by remember {
-        mutableStateOf(false)
-    }
-    var react by remember {
         mutableStateOf(false)
     }
     var edit by remember {
@@ -460,9 +440,6 @@ fun ago(raw:String):String=runCatching {
         mutableStateOf(false)
     }
     val context=LocalContext.current
-    val mine=post.rows("reactions").firstOrNull {
-        it.s("user_id")==vm.api.userId
-    }
     val author=post.child("author")
     Surface {
         Column {
@@ -522,40 +499,9 @@ fun ago(raw:String):String=runCatching {
             }
             if(post.s("media_path").isBlank()&&post.s("body").isNotBlank())Text(post.s("body"),Modifier.padding(start=14.dp,end=14.dp,bottom=14.dp),fontSize=16.sp)
             Media(vm,post.s("media_path"),post.s("media_type"),post=post)
-            if(post.s("media_path").isNotBlank()&&post.s("body").isNotBlank())Text(post.s("body"),Modifier.padding(horizontal=14.dp,vertical=12.dp),fontSize=16.sp)
-            Row(Modifier.fillMaxWidth().padding(horizontal=6.dp),verticalAlignment=Alignment.CenterVertically) {
-                TextButton(onClick={react=true}) { Icon(Icons.Outlined.ThumbUp,"React",Modifier.size(24.dp),tint=if(mine!=null)Blue else MaterialTheme.colorScheme.onSurfaceVariant);Text(" ${post.rows("reactions").size}",color=MaterialTheme.colorScheme.onSurfaceVariant) }
-                TextButton(onClick={vm.go("Comments",post.id())}) { Icon(Icons.Outlined.ChatBubbleOutline,"Comments",Modifier.size(24.dp),tint=MaterialTheme.colorScheme.onSurfaceVariant);Text(" ${post.rows("comments").firstOrNull()?.optInt("count")?:0}",color=MaterialTheme.colorScheme.onSurfaceVariant) }
-                IconButton(onClick={context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply { type="text/plain";putExtra(Intent.EXTRA_TEXT,"${author.s("display_name")} on Spark:\n${post.s("body")}") },"Share post"))}) { Icon(Icons.Outlined.Share,"Share post",tint=MaterialTheme.colorScheme.onSurfaceVariant) }
-                IconButton(onClick={vm.work { if(vm.api.rows("saved","post_id=eq.${post.id()}&user_id=eq.${vm.api.userId}").isEmpty())vm.api.insert("saved",json("post_id" to post.id(),"user_id" to vm.api.userId));vm.notice="Post saved." }}) { Icon(Icons.Outlined.BookmarkBorder,"Save post",tint=MaterialTheme.colorScheme.onSurfaceVariant) }
-            }
+            PostDiscussion(vm,post)
         }
     }
-    if(react)AlertDialog(onDismissRequest= {
-        react=false
-    },title= {
-        Text("React to this post")
-    },text= {
-        Column {
-            listOf("like" to "👍","love" to "❤️","haha" to "😆","wow" to "😮","sad" to "😢","angry" to "😠").forEach {
-                (value,emoji)->TextButton(enabled=vm.tasks==0,onClick= {
-                    vm.work {
-                        if(mine==null)vm.api.insert("reactions",json("post_id" to post.id(),"user_id" to vm.api.userId,"reaction" to value))else if(mine.s("reaction")==value)vm.api.delete("reactions","post_id=eq.${post.id()}&user_id=eq.${vm.api.userId}")else vm.api.update("reactions","post_id=eq.${post.id()}&user_id=eq.${vm.api.userId}",json("reaction" to value))
-                        react=false
-                        vm.refresh()
-                    }
-                }) {
-                    Text("$emoji  $value")
-                }
-            }
-        }
-    },confirmButton= {
-        TextButton(onClick= {
-            react=false
-        }) {
-            Text("Close")
-        }
-    })
     if(edit)TextForm("Edit post",listOf("Post" to post.s("body")),vm, {
         edit=false
     }) {
@@ -653,6 +599,7 @@ fun ago(raw:String):String=runCatching {
     }
 }
 @Composable fun FriendsScreen(vm:SparkViewModel) {
+    var onlyFriends by rememberSaveable { mutableStateOf(false) }
     Rows(vm,"friendships", {
         vm.api.rows("friendships","select=*,sender:sparknew_profiles!sender_id(*),receiver:sparknew_profiles!receiver_id(*)&order=created_at.desc")
     }) {
@@ -670,9 +617,10 @@ fun ago(raw:String):String=runCatching {
             item {
                 Row(Modifier.padding(horizontal=12.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                     AssistChip(onClick={vm.go("Search")},label={Text("Find friends")},shape=CircleShape)
-                    AssistChip(onClick={vm.notice="${accepted.size} friends · ${incoming.size} requests"},label={Text("Your friends · ${accepted.size}")},shape=CircleShape)
+                    FilterChip(selected=onlyFriends,onClick={onlyFriends=!onlyFriends},label={Text(if(onlyFriends)"Show requests" else "Your friends · ${accepted.size}")},shape=CircleShape)
                 }
             }
+            if(!onlyFriends) {
             item {
                 Section("Requests · ${incoming.size}")
             }
@@ -683,6 +631,7 @@ fun ago(raw:String):String=runCatching {
             }
             if(incoming.isEmpty())item {
                 Text("No new requests",Modifier.padding(16.dp),color=MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             }
             item {
                 Section("Your friends · ${accepted.size}")
@@ -702,6 +651,7 @@ fun ago(raw:String):String=runCatching {
                     }
                 }
             }
+            if(!onlyFriends) {
             if(outgoing.isNotEmpty())item {
                 Section("Sent requests")
             }
@@ -719,7 +669,9 @@ fun ago(raw:String):String=runCatching {
                     }
                 }
             }
-            if(friends.isEmpty())item {
+            }
+            if(onlyFriends&&accepted.isEmpty())item { Empty("No friends yet","Accept a request or find people to connect with.",Icons.Outlined.People) }
+            if(friends.isEmpty()&&!onlyFriends)item {
                 Empty("Find your people","Search for a friend by name and send a request.",Icons.Outlined.People)
             }
         }
@@ -806,7 +758,7 @@ fun ago(raw:String):String=runCatching {
         rows->val p=rows.firstOrNull()
         if(p==null)Empty("Profile unavailable","This profile is unavailable or blocked.")else {
             Rows(vm,"profileposts:$id", {
-                vm.api.rows("posts","select=*,author:sparknew_profiles!author_id(*),reactions:sparknew_reactions(*),comments:sparknew_comments(count)&author_id=eq.$id&kind=in.(post,reel)&order=created_at.desc&limit=40")
+                vm.api.rows("posts","${vm.api.postSelect}&author_id=eq.$id&kind=in.(post,reel)&order=created_at.desc&limit=40")
             }) {
                 posts->LazyColumn(verticalArrangement=Arrangement.spacedBy(8.dp)) {
                     item {
@@ -948,66 +900,6 @@ fun ago(raw:String):String=runCatching {
             block=false
             vm.back()
             vm.refresh()
-        }
-    }
-}
-@Composable fun CommentsScreen(vm:SparkViewModel,post:String) {
-    var body by rememberSaveable {
-        mutableStateOf("")
-    }
-    Column {
-        Box(Modifier.weight(1f)) {
-            Rows(vm,"comments:$post", {
-                vm.api.rows("comments","select=*,author:sparknew_profiles!author_id(*)&post_id=eq.$post&order=created_at.asc&limit=200")
-            }) {
-                comments->LazyColumn {
-                    items(comments,key= {
-                        it.id()
-                    }) {
-                        c->Row(Modifier.fillMaxWidth().padding(12.dp)) {
-                            Avatar(vm,c.child("author"),36) {
-                                vm.go("Profile",c.s("author_id"))
-                            }
-                            Column(Modifier.weight(1f).padding(start=10.dp)) {
-                                Surface(shape=RoundedCornerShape(16.dp)) {
-                                    Column(Modifier.padding(12.dp)) {
-                                        Text(c.child("author").s("display_name"),fontWeight=FontWeight.Bold)
-                                        Text(c.s("body"))
-                                    }
-                                }
-                                Text(ago(c.s("created_at")),fontSize=12.sp)
-                            }
-                            if(c.s("author_id")==vm.api.userId)IconButton(onClick= {
-                                vm.work {
-                                    vm.api.delete("comments","id=eq.${c.id()}")
-                                    vm.refresh()
-                                }
-                            }) {
-                                Icon(Icons.Outlined.Delete,"Delete comment")
-                            }
-                        }
-                    }
-                    if(comments.isEmpty())item {
-                        Empty("Join the conversation","Be the first to leave a comment.",Icons.Outlined.Comment)
-                    }
-                }
-            }
-        }
-        Row(Modifier.padding(12.dp),verticalAlignment=Alignment.CenterVertically) {
-            OutlinedTextField(body, {
-                body=it
-            },placeholder= {
-                Text("Write a comment…")
-            },modifier=Modifier.weight(1f))
-            IconButton(enabled=vm.tasks==0&&body.isNotBlank(),onClick= {
-                vm.work {
-                    vm.api.insert("comments",json("post_id" to post,"author_id" to vm.api.userId,"body" to body.trim()))
-                    body=""
-                    vm.refresh()
-                }
-            }) {
-                Icon(Icons.AutoMirrored.Outlined.Send,"Send comment",tint=Blue)
-            }
         }
     }
 }
@@ -1550,7 +1442,7 @@ fun ago(raw:String):String=runCatching {
 @Composable fun SavedScreen(vm:SparkViewModel) {
     Rows(vm,"saved", {
         val saved=vm.api.rows("saved","user_id=eq.${vm.api.userId}")
-        if(saved.isEmpty())emptyList()else vm.api.rows("posts","select=*,author:sparknew_profiles!author_id(*),reactions:sparknew_reactions(*),comments:sparknew_comments(count)&id=in.(${saved.joinToString(","){it.s("post_id")}})&order=created_at.desc")
+        if(saved.isEmpty())emptyList()else vm.api.rows("posts","${vm.api.postSelect}&id=in.(${saved.joinToString(","){it.s("post_id")}})&order=created_at.desc")
     }) {
         posts->LazyColumn(verticalArrangement=Arrangement.spacedBy(8.dp)) {
             items(posts,key= {

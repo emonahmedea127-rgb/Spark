@@ -15,7 +15,7 @@ end; $$;
 select set_config('spark.test.alice',gen_random_uuid()::text,true),set_config('spark.test.bob',gen_random_uuid()::text,true),set_config('spark.test.carol',gen_random_uuid()::text,true);
 insert into auth.users(id,email,raw_user_meta_data) select current_setting('spark.test.'||who)::uuid,'spark-test-'||current_setting('spark.test.'||who)||'@example.invalid','{}'::jsonb from unnest(array['alice','bob','carol']) who;
 insert into public.sparknew_profiles(id,display_name) select current_setting('spark.test.'||who)::uuid,who from unnest(array['alice','bob','carol']) who;
-select pg_temp.check_true((select count(*)=17 and bool_and(relrowsecurity) from pg_class where relnamespace='public'::regnamespace and relname like 'sparknew_%' and relkind='r'),'RLS enabled on all 17 new tables');
+select pg_temp.check_true((select count(*)=18 and bool_and(relrowsecurity) from pg_class where relnamespace='public'::regnamespace and relname like 'sparknew_%' and relkind='r'),'RLS enabled on all 18 new tables');
 select pg_temp.check_true((select not public from storage.buckets where id='spark-media-v1'),'Media bucket is private');
 set local role authenticated;
 select set_config('request.jwt.claims',json_build_object('sub',current_setting('spark.test.alice'),'role','authenticated')::text,true);
@@ -38,6 +38,15 @@ select pg_temp.check_true((select count(*)=3 from public.sparknew_posts where au
 select pg_temp.must_deny(format('update public.sparknew_posts set author_id=%L where body=''public test''',current_setting('spark.test.bob')),'Post ownership cannot be reassigned');
 insert into public.sparknew_comments(post_id,author_id,body) select id,current_setting('spark.test.bob')::uuid,'test comment' from public.sparknew_posts where body='friends test';
 select pg_temp.check_true((select count(*)=1 from public.sparknew_comments where body='test comment'),'Friend can comment on visible post');
+select set_config('spark.test.comment',(select id::text from public.sparknew_comments where body='test comment'),true);
+select set_config('spark.test.friendpost',(select post_id::text from public.sparknew_comments where body='test comment'),true);
+insert into public.sparknew_comment_likes(comment_id,user_id) values(current_setting('spark.test.comment')::uuid,current_setting('spark.test.bob')::uuid);
+select pg_temp.check_true((select count(*)=1 from public.sparknew_comment_likes where comment_id=current_setting('spark.test.comment')::uuid),'Visible comment can be liked');
+select pg_temp.must_deny(format('insert into public.sparknew_comment_likes(comment_id,user_id) values(%L,%L)',current_setting('spark.test.comment'),current_setting('spark.test.alice')),'Cannot impersonate a comment liker');
+insert into public.sparknew_comments(post_id,author_id,body,parent_id) values(current_setting('spark.test.friendpost')::uuid,current_setting('spark.test.bob')::uuid,'reply test',current_setting('spark.test.comment')::uuid);
+select pg_temp.check_true((select parent_id=current_setting('spark.test.comment')::uuid from public.sparknew_comments where body='reply test'),'Reply is linked to its parent');
+select pg_temp.must_deny(format('insert into public.sparknew_comments(post_id,author_id,body,parent_id) values(%L,%L,''cross post reply'',%L)',(select id from public.sparknew_posts where body='public test'),current_setting('spark.test.bob'),current_setting('spark.test.comment')),'Cross-post reply rejected');
+
 insert into public.sparknew_conversations(user_a,user_b) values(least(current_setting('spark.test.alice')::uuid,current_setting('spark.test.bob')::uuid),greatest(current_setting('spark.test.alice')::uuid,current_setting('spark.test.bob')::uuid));
 select set_config('spark.test.chat',(select id::text from public.sparknew_conversations where user_a=least(current_setting('spark.test.alice')::uuid,current_setting('spark.test.bob')::uuid)),true);
 insert into public.sparknew_messages(conversation_id,sender_id,body,media_path,media_type) values(current_setting('spark.test.chat')::uuid,current_setting('spark.test.bob')::uuid,'private chat',current_setting('spark.test.bob')||'/chat.jpg','image');
@@ -50,6 +59,10 @@ insert into public.sparknew_calls(conversation_id,caller_id,callee_id) values(cu
 select set_config('spark.test.call',(select id::text from public.sparknew_calls where conversation_id=current_setting('spark.test.chat')::uuid),true);
 select set_config('request.jwt.claims',json_build_object('sub',current_setting('spark.test.carol'),'role','authenticated')::text,true);
 select pg_temp.check_true((select count(*)=0 from public.sparknew_messages where conversation_id=current_setting('spark.test.chat')::uuid),'Third user cannot read conversation messages');
+select pg_temp.check_true((select count(*)=0 from public.sparknew_comment_likes where comment_id=current_setting('spark.test.comment')::uuid),'Private comment likes hidden from strangers');
+select pg_temp.must_deny(format('insert into public.sparknew_comment_likes(comment_id,user_id) values(%L,%L)',current_setting('spark.test.comment'),current_setting('spark.test.carol')),'Stranger cannot like an inaccessible comment');
+select pg_temp.must_deny(format('insert into public.sparknew_comments(post_id,author_id,body,parent_id) values(%L,%L,''hidden parent reply'',%L)',(select id from public.sparknew_posts where body='public test'),current_setting('spark.test.carol'),current_setting('spark.test.comment')),'Hidden parent cannot be used for replies');
+
 select pg_temp.check_true((select count(*)=0 from public.sparknew_calls where id=current_setting('spark.test.call')::uuid),'Third user cannot read call signaling');
 select pg_temp.check_true(not sparknew_v1_private.media_visible(current_setting('spark.test.bob')||'/chat.jpg'),'Third user cannot read chat media');
 select pg_temp.must_deny(format('insert into public.sparknew_messages(conversation_id,sender_id,body) values(%L,%L,''intrusion'')',current_setting('spark.test.chat'),current_setting('spark.test.carol')),'Third user cannot send into conversation');
@@ -63,6 +76,10 @@ select pg_temp.check_true((select count(*)=0 from public.sparknew_messages where
 select set_config('request.jwt.claims',json_build_object('sub',current_setting('spark.test.alice'),'role','authenticated')::text,true);
 select pg_temp.check_true((select count(*)=0 from public.sparknew_profiles where id=current_setting('spark.test.bob')::uuid),'Block is enforced in both directions');
 select pg_temp.check_true(not sparknew_v1_private.media_visible(current_setting('spark.test.bob')||'/chat.jpg'),'Block revokes chat media access');
+select pg_temp.check_true((select count(*)=0 from public.sparknew_comment_likes where comment_id=current_setting('spark.test.comment')::uuid),'Block hides comment likes');
 reset role;
+delete from public.sparknew_comments where id=current_setting('spark.test.comment')::uuid;
+select pg_temp.check_true((select count(*)=0 from public.sparknew_comments where body='reply test'),'Deleting parent removes replies');
+select pg_temp.check_true((select count(*)=0 from public.sparknew_comment_likes where comment_id=current_setting('spark.test.comment')::uuid),'Deleting comment removes its likes');
 select json_build_object('passed',count(*),'checks',json_agg(name)) as verification from spark_test_results;
 rollback;

@@ -2,7 +2,18 @@
 
 Emon Ahmed-এর জন্য নতুন native Android social app project। Kotlin + Jetpack Compose। Backend: Supabase Auth, PostgreSQL এবং private Storage।
 
-**বর্তমান অবস্থা:** APK তৈরি হয়েছে। GitHub Actions-এ `assembleDebug` ও `lintDebug` সফল; ২৭টি database/RLS test এবং ৪টি call logic test পাস। APK ফোনে ইনস্টল করার debug build। বাস্তব ফোনে end-to-end পরীক্ষা এখনও হয়নি।
+**বর্তমান অবস্থা:** Spark 1.2-এ image caching/compression ও দেওয়া screenshot অনুযায়ী মূল screens-এর layout যুক্ত হয়েছে। প্রথম verification build-এ compilation/lint, ৭টি Android test এবং ৪টি call test পাস করেছে। চূড়ান্ত APK-এর run ও hash `docs/VERIFICATION-1.2.md`-এ আছে।
+
+## 1.2 আপডেট
+
+- একই ছবি বারবার download হয় না: account অনুযায়ী ৫ মিনিটের RAM cache, একই ছবির request একত্র করা, feed prefetch।
+- Fullscreen-এ ছবি খুললে cached data ব্যবহার; avatar/feed/fullscreen অনুযায়ী decode size।
+- নতুন photo upload সর্বোচ্চ 2048px-এ resize ও compress হয়। পুরোনো বড় ছবির প্রথম load নেটের উপর নির্ভর করবে।
+- Feed, profile, friends, story cards, fullscreen composer ও নিচের ছয়-icon navigation দেওয়া reference-এর layout অনুযায়ী বদলানো হয়েছে।
+- Reels-এ vertical swipe; একটি video player একসময় চালু থাকে।
+- Story reply, photo viewer-এর caption/author/actions, profile tabs/settings।
+
+1.1 থেকে 1.2 install করার আগে পুরোনো app uninstall প্রয়োজন হতে পারে। আগের CI signing-key cache কাজ করছিল না; 1.2 workflow-এ explicit key path ব্যবহার করা হয়েছে। Supabase data থাকবে; আবার login করতে হবে।
 
 ## 1.1 আপডেট
 
@@ -43,7 +54,7 @@ Successful build-এর পরে APK: `app/build/outputs/apk/debug/app-debug.ap
 
 ## GitHub দিয়ে build
 
-repository root-এর `.github/workflows/spark-native.yml` যুক্ত আছে। ZIP-এর `.github` এবং `spark-native` folder repository root-এ রাখো। Actions → **Build Spark Android** → **Run workflow**। সফল হলে **Spark-debug-APK** artifact download করো। এই workflow সংযুক্ত `emonahmedea127-rgb/Spark` repository-র `codex/spark-native-apk` branch-এ চালানো হয়েছে। Build run: https://github.com/emonahmedea127-rgb/Spark/actions/runs/35792630432
+repository root-এর `.github/workflows/spark-native.yml` যুক্ত আছে। ZIP-এর `.github` এবং `spark-native` folder repository root-এ রাখো। Actions → **Build Spark Android** → **Run workflow**। সফল হলে **Spark-debug-APK** artifact download করো। এই workflow সংযুক্ত `emonahmedea127-rgb/Spark` repository-র `codex/spark-native-apk` branch-এ চালানো হয়েছে। Build run: https://github.com/emonahmedea127-rgb/Spark/actions/runs/35817618117
 
 ## কোডে যুক্ত ফিচার
 
