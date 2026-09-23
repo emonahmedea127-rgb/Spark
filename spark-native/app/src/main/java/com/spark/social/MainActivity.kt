@@ -154,7 +154,7 @@ class MainActivity:ComponentActivity() {
         if(vm.me!=null&&vm.stack.size==1)SparkBottomBar(vm)
     }) {
         padding->
-        Column(Modifier.fillMaxSize().padding(padding)) {
+        Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
             if(vm.tasks>0)LinearProgressIndicator(Modifier.fillMaxWidth())
             if(vm.starting)Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center) {
                 CircularProgressIndicator()
@@ -734,24 +734,9 @@ fun ago(raw:String):String=runCatching {
         mutableStateOf("avatar_path")
     }
     val own=id==vm.api.userId
-    val pick=rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) {
-        uri->if(uri!=null)vm.work {
-            val media=vm.api.upload(uri)
-            try {
-                require(media.second=="image") {
-                    "Choose an image."
-                }
-                vm.api.update("profiles","id=eq.$id",json(photoField to media.first))
-                vm.me=vm.api.ensureProfile()
-                vm.refresh()
-            }catch(e:Exception) {
-                if(e is IllegalArgumentException || (e is ApiException && e.status in 400..499))runCatching {
-                    vm.api.removeMedia(media.first)
-                }
-                throw e
-            }
-        }
-    }
+    var cropUri by remember { mutableStateOf<Uri?>(null) }
+    val pick=rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { cropUri=it }
+    cropUri?.let { selected->ProfilePhotoCropper(vm,selected,photoField,onClose={cropUri=null}) }
     Rows(vm,"profile:$id", {
         vm.api.rows("profiles","id=eq.$id")
     }) {
@@ -764,7 +749,7 @@ fun ago(raw:String):String=runCatching {
                     item {
                         Surface {
                             Column {
-                                Box(Modifier.fillMaxWidth().height(240.dp).background(Color(0xFFBBCBD8)).clickable {
+                                Box(Modifier.fillMaxWidth().aspectRatio(16f/9f).background(Color(0xFFBBCBD8)).clickable {
                                     if(p.s("cover_path").isNotBlank())previewPhoto=p.s("cover_path")
                                     else if(own) { photoField="cover_path";pick.launch("image/*") }
                                 }) {
@@ -982,7 +967,7 @@ fun ago(raw:String):String=runCatching {
             }
         }
     }
-    Column {
+    KeyboardAwareChatColumn {
         Row(Modifier.fillMaxWidth().padding(horizontal=12.dp),verticalAlignment=Alignment.CenterVertically) {
             Text(if(error)"Connection interrupted" else "Private conversation",fontSize=12.sp,modifier=Modifier.weight(1f))
             listOf(false,true).forEach {
@@ -1029,26 +1014,10 @@ fun ago(raw:String):String=runCatching {
         }) {
             Text("Attachment selected · Remove")
         }
-        Row(Modifier.fillMaxWidth().padding(8.dp),verticalAlignment=Alignment.CenterVertically) {
-            IconButton(onClick= {
-                pick.launch("*/*")
-            }) {
-                Icon(Icons.Outlined.AddPhotoAlternate,"Attach media")
-            }
-            OutlinedTextField(text, {
-                text=it
-            },placeholder= {
-                Text("Message…")
-            },modifier=Modifier.weight(1f),maxLines=4,shape=RoundedCornerShape(24.dp))
-            IconButton(enabled=vm.tasks==0&&(text.isNotBlank()||uri!=null),onClick= {
-                vm.work {
-                    vm.api.send(id,text,uri)
-                    text=""
-                    uri=null
-                    vm.refresh()
-                }
-            }) {
-                Icon(Icons.AutoMirrored.Outlined.Send,"Send",tint=Blue)
+        MessageComposer(text,onTextChange={text=it},busy=vm.tasks>0,hasAttachment=uri!=null,onAttach={pick.launch("*/*")}) {
+            vm.work {
+                vm.api.send(id,text,uri)
+                text="";uri=null;vm.refresh()
             }
         }
     }

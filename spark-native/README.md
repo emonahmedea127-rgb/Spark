@@ -1,5 +1,15 @@
 # Spark Android
 
+## 1.4 আপডেট
+
+- Reaction সংখ্যা বা emoji চাপলে কারা react করেছে তার paged তালিকা; reaction অনুযায়ী filter ও profile খোলা যায়।
+- Keyboard খুললে message composer উপরে থাকে।
+- Profile/cover upload-এর আগে drag, pinch/slider zoom, Reset ও crop preview। Profile crop square/circle preview; cover 16:9।
+- Update and share চাপলে ছবি পরিবর্তন এবং public feed announcement একই database transaction-এ হয়।
+
+`backend/profile-photos-v1.4.sql` existing project-এ প্রয়োগ করা হয়েছে। নতুন project-এর জন্য আগের schema ও 1.3 upgrade-এর পরে এই file প্রয়োগ করতে হবে।
+
+
 ## 1.3 আপডেট
 
 - Reference-এর মতো reaction/comment/share row এবং ডানে reaction emoji। Like tap করে toggle; hold করলে ছয়টি reaction।

@@ -33,7 +33,7 @@ import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 
-private val reactionEmoji=linkedMapOf("like" to "👍","love" to "❤️","haha" to "😆","wow" to "😮","sad" to "😢","angry" to "😠")
+internal val reactionEmoji=linkedMapOf("like" to "👍","love" to "❤️","haha" to "😆","wow" to "😮","sad" to "😢","angry" to "😠")
 internal fun compactCount(n:Int):String=when {
     n>=1_000_000->String.format(java.util.Locale.US,"%.1fM",n/1_000_000f).replace(".0M","M")
     n>=1_000->String.format(java.util.Locale.US,"%.1fK",n/1_000f).replace(".0K","K")
@@ -44,6 +44,7 @@ internal fun compactCount(n:Int):String=when {
     val context=LocalContext.current
     var reactions by remember(post) { mutableStateOf(post.rows("reactions")) }
     var picking by remember { mutableStateOf(false) }
+    var showPeople by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     val mine=reactions.firstOrNull { it.s("user_id")==vm.api.userId }?.s("reaction")
     val ink=if(white)Color.White else MaterialTheme.colorScheme.onSurfaceVariant
@@ -67,7 +68,7 @@ internal fun compactCount(n:Int):String=when {
             Row(Modifier.heightIn(min=48.dp).combinedClickable(enabled=!saving,onClick={react(mine?:"like")},onLongClick={picking=true},onLongClickLabel="Choose a reaction").padding(end=18.dp),verticalAlignment=Alignment.CenterVertically) {
                 if(mine!=null&&mine!="like")Text(reactionEmoji[mine]?:"👍",fontSize=22.sp,modifier=Modifier.semantics { contentDescription="Your reaction: $mine" })
                 else Icon(Icons.Outlined.ThumbUp,"Like; hold to choose reaction",Modifier.size(25.dp),tint=if(mine!=null)Blue else ink)
-                Text(" ${compactCount(reactions.size)}",color=if(mine!=null)Blue else ink,fontSize=15.sp)
+                Text(" ${compactCount(reactions.size)}",color=if(mine!=null)Blue else ink,fontSize=15.sp,modifier=Modifier.clickable {showPeople=true}.semantics {contentDescription="See who reacted"})
             }
             DropdownMenu(expanded=picking,onDismissRequest={picking=false}) {
                 Row(Modifier.padding(horizontal=4.dp)) { reactionEmoji.forEach { (value,emoji)->
@@ -82,10 +83,11 @@ internal fun compactCount(n:Int):String=when {
         IconButton(onClick={context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply { type="text/plain";putExtra(Intent.EXTRA_TEXT,"${post.child("author").s("display_name")} on Spark:\n${post.s("body")}") },"Share post"))}) { Icon(Icons.Outlined.Share,"Share post",tint=ink,modifier=Modifier.size(25.dp)) }
         Spacer(Modifier.weight(1f))
         val top=reactions.groupingBy { it.s("reaction") }.eachCount().entries.sortedByDescending { it.value }.take(3)
-        if(top.isNotEmpty())Row(Modifier.heightIn(min=48.dp).clickable { picking=true }.semantics { contentDescription="Reactions: "+top.joinToString { "${it.key} ${it.value}" } },verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy((-4).dp)) {
+        if(top.isNotEmpty())Row(Modifier.heightIn(min=48.dp).clickable { showPeople=true }.semantics { contentDescription="Reactions: "+top.joinToString { "${it.key} ${it.value}" } },verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy((-4).dp)) {
             top.forEach { Text(reactionEmoji[it.key]?:"👍",fontSize=20.sp) }
         }else IconButton(onClick={picking=true}) { Icon(Icons.Outlined.AddReaction,"Choose a reaction",tint=ink,modifier=Modifier.size(23.dp)) }
     }
+    if(showPeople)ReactionPeopleDialog(vm,post.id(),reactions,onClose={showPeople=false})
 }
 
 @Composable private fun Caption(body:String) {

@@ -232,6 +232,13 @@ class SparkApi private constructor(private val context: Context) {
         raw("/storage/v1/object/${Backend.BUCKET}/$path", "POST",bytes,mime)
         Pair(path,if(mime.startsWith("video")) "video" else "image")
     }
+    suspend fun uploadCroppedPhoto(bytes:ByteArray):String=withContext(Dispatchers.IO) {
+        fresh()
+        require(bytes.isNotEmpty()&&bytes.size<=25*1024*1024) { "Photo is too large." }
+        val path="$userId/${UUID.randomUUID()}.jpg"
+        raw("/storage/v1/object/${Backend.BUCKET}/$path","POST",bytes,"image/jpeg")
+        path
+    }
     suspend fun removeMedia(path: String) {
         request("/storage/v1/object/${Backend.BUCKET}","DELETE",json("prefixes" to JSONArray().put(path)))
     }

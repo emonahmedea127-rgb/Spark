@@ -35,6 +35,16 @@ select pg_temp.check_true(not sparknew_v1_private.media_visible(current_setting(
 update public.sparknew_friendships set status='accepted' where receiver_id=current_setting('spark.test.bob')::uuid;
 select pg_temp.check_true((select status='accepted' from public.sparknew_friendships where receiver_id=current_setting('spark.test.bob')::uuid),'Recipient can accept request');
 select pg_temp.check_true((select count(*)=3 from public.sparknew_posts where author_id=current_setting('spark.test.alice')::uuid),'Accepted friend sees friends-only post');
+update public.sparknew_profiles set avatar_path=current_setting('spark.test.bob')||'/avatar.jpg' where id=current_setting('spark.test.bob')::uuid;
+select pg_temp.check_true((select count(*)=1 from public.sparknew_posts where author_id=current_setting('spark.test.bob')::uuid and body='updated their profile picture.' and media_path=current_setting('spark.test.bob')||'/avatar.jpg'),'Avatar update creates one feed post');
+update public.sparknew_profiles set avatar_path=current_setting('spark.test.bob')||'/avatar.jpg',bio='Test bio' where id=current_setting('spark.test.bob')::uuid;
+select pg_temp.check_true((select count(*)=1 from public.sparknew_posts where author_id=current_setting('spark.test.bob')::uuid),'Retry with same photo does not create duplicate post');
+update public.sparknew_profiles set cover_path=current_setting('spark.test.bob')||'/cover.jpg' where id=current_setting('spark.test.bob')::uuid;
+select pg_temp.check_true((select count(*)=1 from public.sparknew_posts where author_id=current_setting('spark.test.bob')::uuid and body='updated their cover photo.' and media_type='image' and visibility='public'),'Cover update creates public image post');
+select pg_temp.must_deny(format('update public.sparknew_profiles set avatar_path=%L where id=%L',current_setting('spark.test.alice')||'/stolen.jpg',current_setting('spark.test.bob')),'Profile update cannot publish another users media');
+select pg_temp.check_true((select avatar_path=current_setting('spark.test.bob')||'/avatar.jpg' from public.sparknew_profiles where id=current_setting('spark.test.bob')::uuid),'Failed photo update preserves old profile photo');
+select pg_temp.check_true((select count(*)=2 from public.sparknew_posts where author_id=current_setting('spark.test.bob')::uuid),'Failed photo update does not create announcement');
+
 select pg_temp.must_deny(format('update public.sparknew_posts set author_id=%L where body=''public test''',current_setting('spark.test.bob')),'Post ownership cannot be reassigned');
 insert into public.sparknew_comments(post_id,author_id,body) select id,current_setting('spark.test.bob')::uuid,'test comment' from public.sparknew_posts where body='friends test';
 select pg_temp.check_true((select count(*)=1 from public.sparknew_comments where body='test comment'),'Friend can comment on visible post');
