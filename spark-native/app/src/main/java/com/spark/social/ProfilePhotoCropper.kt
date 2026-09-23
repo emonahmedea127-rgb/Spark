@@ -16,6 +16,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
@@ -50,8 +51,9 @@ internal fun croppedBitmap(bitmap:Bitmap,frame:IntSize,zoom:Float,pan:Offset,cov
     val transform=cropTransform(bitmap.width,bitmap.height,frame.width,frame.height,zoom,pan)
     val width=if(cover)1600 else 1024;val height=if(cover)900 else 1024
     val factor=width.toFloat()/frame.width
+    val factorY=height.toFloat()/frame.height
     return Bitmap.createBitmap(width,height,Bitmap.Config.ARGB_8888).apply {
-        val matrix=Matrix().apply {setScale(transform.scale*factor,transform.scale*factor);postTranslate(transform.left*factor,transform.top*factor)}
+        val matrix=Matrix().apply {setScale(transform.scale*factor,transform.scale*factorY);postTranslate(transform.left*factor,transform.top*factorY)}
         AndroidCanvas(this).apply {drawColor(android.graphics.Color.WHITE);drawBitmap(bitmap,matrix,Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))}
     }
 }
@@ -88,7 +90,7 @@ internal fun croppedBitmap(bitmap:Bitmap,frame:IntSize,zoom:Float,pan:Offset,cov
                     val aspect=if(cover)16f/9f else 1f
                     val width=minOf(maxWidth-32.dp,maxHeight*aspect)
                     val image=remember(bm) {bm.asImageBitmap()}
-                    Canvas(Modifier.width(width).aspectRatio(aspect).onSizeChanged {frame=it}.pointerInput(bm,busy) {
+                    Canvas(Modifier.width(width).aspectRatio(aspect).clipToBounds().onSizeChanged {frame=it}.pointerInput(bm,busy) {
                         detectTransformGestures {_,move,scale,_->
                             if(!busy&&frame.width>0) {
                                 zoom=(zoom*scale).coerceIn(1f,4f)
