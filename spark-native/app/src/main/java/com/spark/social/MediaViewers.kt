@@ -70,7 +70,7 @@ data class MediaAccess(val url:String,val headers:Map<String,String>)
 
 @Composable fun PrivateImage(
     vm:SparkViewModel,path:String,modifier:Modifier=Modifier,
-    contentScale:ContentScale=ContentScale.Crop,videoFrame:Boolean=false,onReady:()->Unit={},targetPx:Int=960
+    contentScale:ContentScale=ContentScale.Crop,videoFrame:Boolean=false,onReady:()->Unit={},targetPx:Int=960,onRatio:(Float)->Unit={}
 ) {
     // Never download an entire video just to draw a scrolling thumbnail.
     if(videoFrame) {
@@ -83,6 +83,7 @@ data class MediaAccess(val url:String,val headers:Map<String,String>)
     var loading by remember(path) { mutableStateOf(true) }
     var attempt by remember(path) { mutableIntStateOf(0) }
     val ready by rememberUpdatedState(onReady)
+    val ratioReady by rememberUpdatedState(onRatio)
     LaunchedEffect(path,attempt,vm.api.userId) {
         loading=true;failed=false
         try { bytes=FastImages.bytes(vm.api,path) }
@@ -99,7 +100,7 @@ data class MediaAccess(val url:String,val headers:Map<String,String>)
     Box(modifier.background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha=.45f)),contentAlignment=Alignment.Center) {
         if(request!=null&&!failed)key(attempt) { AsyncImage(model=request,imageLoader=loader,contentDescription="Shared photo",
             contentScale=contentScale,modifier=Modifier.fillMaxSize(),
-            onSuccess={loading=false;ready()},onError={loading=false;failed=true}) }
+            onSuccess={result->loading=false;val image=result.result.drawable;if(image.intrinsicHeight>0)ratioReady(image.intrinsicWidth.toFloat()/image.intrinsicHeight);ready()},onError={loading=false;failed=true}) }
         if(loading)Icon(Icons.Outlined.Image,null,tint=MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha=.25f),modifier=Modifier.size(28.dp))
         if(failed)TextButton(onClick={bytes=null;attempt++}) { Icon(Icons.Outlined.Refresh,null);Text(" Reload") }
     }
@@ -108,8 +109,9 @@ data class MediaAccess(val url:String,val headers:Map<String,String>)
 @Composable fun Media(vm:SparkViewModel,path:String,type:String,modifier:Modifier=Modifier,post:JSONObject?=null) {
     if(path.isBlank())return
     var open by rememberSaveable(path) { mutableStateOf(false) }
-    Box(modifier.fillMaxWidth().height(if(type=="video")280.dp else 340.dp).clickable { open=true }) {
-        PrivateImage(vm,path,Modifier.fillMaxSize(),videoFrame=type=="video")
+    var ratio by remember(path) { mutableFloatStateOf(1f) }
+    Box(modifier.fillMaxWidth().then(if(type=="video")Modifier.height(280.dp) else Modifier.aspectRatio(ratio)).clickable { open=true }) {
+        PrivateImage(vm,path,Modifier.fillMaxSize(),videoFrame=type=="video",onRatio={ratio=it.coerceIn(.55f,2f)})
         if(type=="video") {
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent,Color.Black.copy(alpha=.5f)))))
             Surface(Modifier.align(Alignment.Center).size(68.dp),shape=CircleShape,color=Color.Black.copy(alpha=.45f)) {

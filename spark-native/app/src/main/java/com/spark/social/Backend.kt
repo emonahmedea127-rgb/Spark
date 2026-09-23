@@ -133,6 +133,7 @@ class SparkApi private constructor(private val context: Context) {
             if(e.status in listOf(400,401,403)) {
                 session=null
                 vault.save(null)
+                FastImages.clear()
             }
             throw e
         }

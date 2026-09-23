@@ -12,6 +12,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -358,7 +359,7 @@ class MainActivity:ComponentActivity() {
 }) {
     Box(Modifier.size(size.dp).clip(CircleShape).background(Color(0xFFDCEAFF)).clickable(onClick=onClick),contentAlignment=Alignment.Center) {
         Text(profile.s("display_name").take(1).uppercase(),fontSize=(size/2).sp,color=Blue,fontWeight=FontWeight.Bold)
-        if(profile.s("avatar_path").isNotEmpty())PrivateImage(vm,profile.s("avatar_path"),Modifier.fillMaxSize(),targetPx=192)
+        if(profile.s("avatar_path").isNotEmpty())PrivateImage(vm,profile.s("avatar_path"),Modifier.fillMaxSize(),targetPx=(size*3).coerceIn(128,512))
     }
 }
 fun ago(raw:String):String=runCatching {
@@ -519,39 +520,14 @@ fun ago(raw:String):String=runCatching {
                     }
                 }
             }
-            if(post.s("body").isNotBlank())Text(post.s("body"),Modifier.padding(start=14.dp,end=14.dp,bottom=14.dp),fontSize=16.sp)
+            if(post.s("media_path").isBlank()&&post.s("body").isNotBlank())Text(post.s("body"),Modifier.padding(start=14.dp,end=14.dp,bottom=14.dp),fontSize=16.sp)
             Media(vm,post.s("media_path"),post.s("media_type"),post=post)
-            Row(Modifier.fillMaxWidth().padding(12.dp)) {
-                Text("${post.rows("reactions").size} reactions",fontSize=13.sp,color=MaterialTheme.colorScheme.onSurfaceVariant,modifier=Modifier.weight(1f))
-                Text("${post.rows("comments").firstOrNull()?.optInt("count")?:0} comments",fontSize=13.sp,modifier=Modifier.clickable {
-                    vm.go("Comments",post.id())
-                })
-            }
-            HorizontalDivider(Modifier.padding(horizontal=12.dp))
-            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceEvenly) {
-                TextButton(onClick= {
-                    react=true
-                }) {
-                    Icon(Icons.Outlined.ThumbUp,null,Modifier.size(18.dp))
-                    Text(" "+(mine?.s("reaction")?.replaceFirstChar {
-                        it.uppercase()
-                    }?:"Like"))
-                }
-                TextButton(onClick= {
-                    vm.go("Comments",post.id())
-                }) {
-                    Icon(Icons.Outlined.Comment,null,Modifier.size(18.dp))
-                    Text(" Comment")
-                }
-                TextButton(onClick= {
-                    context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
-                        type="text/plain"
-                        putExtra(Intent.EXTRA_TEXT,"${author.s("display_name")} on Spark:\n${post.s("body")}")
-                    },"Share post"))
-                }) {
-                    Icon(Icons.Outlined.Share,null,Modifier.size(18.dp))
-                    Text(" Share")
-                }
+            if(post.s("media_path").isNotBlank()&&post.s("body").isNotBlank())Text(post.s("body"),Modifier.padding(horizontal=14.dp,vertical=12.dp),fontSize=16.sp)
+            Row(Modifier.fillMaxWidth().padding(horizontal=6.dp),verticalAlignment=Alignment.CenterVertically) {
+                TextButton(onClick={react=true}) { Icon(Icons.Outlined.ThumbUp,"React",Modifier.size(24.dp),tint=if(mine!=null)Blue else MaterialTheme.colorScheme.onSurfaceVariant);Text(" ${post.rows("reactions").size}",color=MaterialTheme.colorScheme.onSurfaceVariant) }
+                TextButton(onClick={vm.go("Comments",post.id())}) { Icon(Icons.Outlined.ChatBubbleOutline,"Comments",Modifier.size(24.dp),tint=MaterialTheme.colorScheme.onSurfaceVariant);Text(" ${post.rows("comments").firstOrNull()?.optInt("count")?:0}",color=MaterialTheme.colorScheme.onSurfaceVariant) }
+                IconButton(onClick={context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply { type="text/plain";putExtra(Intent.EXTRA_TEXT,"${author.s("display_name")} on Spark:\n${post.s("body")}") },"Share post"))}) { Icon(Icons.Outlined.Share,"Share post",tint=MaterialTheme.colorScheme.onSurfaceVariant) }
+                IconButton(onClick={vm.work { if(vm.api.rows("saved","post_id=eq.${post.id()}&user_id=eq.${vm.api.userId}").isEmpty())vm.api.insert("saved",json("post_id" to post.id(),"user_id" to vm.api.userId));vm.notice="Post saved." }}) { Icon(Icons.Outlined.BookmarkBorder,"Save post",tint=MaterialTheme.colorScheme.onSurfaceVariant) }
             }
         }
     }
