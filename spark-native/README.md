@@ -85,7 +85,7 @@ repository root-এর `.github/workflows/spark-native.yml` যুক্ত আ�
 - Android compilation ও lint সফল। বাস্তব ফোনে UI, Auth, upload ও কলের end-to-end পরীক্ষা বাকি।
 - Call logic tests বাস্তব দুই ফোনের audio/video test নয়। বর্তমানে STUN আছে; restrictive mobile/Wi-Fi networks-এর জন্য TURN service configuration প্রয়োজন।
 - Calls শুধু app সামনে খোলা থাকলে আসে; call screen background-এ গেলে call শেষ হয়। Background push/ringing এবং foreground call service নেই।
-- Chat প্রতি ৪ সেকেন্ডে এবং incoming calls প্রতি ৭ সেকেন্ডে foreground polling করে। Feed/notifications refresh button দিয়ে update হয়। Supabase Realtime subscriptions এই version-এ নেই।
+- Chat প্রতি ৪ সেকেন্ডে এবং incoming calls প্রতি ৭ সেকেন্ডে foreground polling করে। Feed pull-to-refresh এবং notifications পুনরায় খুলে update হয়। Supabase Realtime subscriptions এই version-এ নেই।
 - Groups/pages public; private groups, moderator dashboard, live streaming, ads, payments, encrypted messenger এবং Facebook-এর সম্পূর্ণ feature set যুক্ত করা হয়নি। Google/phone OTP login-ও নেই।
 - Password recovery কোড email template-এ থাকলে app-এ reset করা যায়। বর্তমান template/email delivery এখানে end-to-end যাচাই হয়নি।
 - Upload limit 25 MB; JPG/PNG/WebP/MP4/WebM। Video transcoding, resumable upload ও automatic unused-file cleanup নেই। Deleted/expired content-এর media স্বয়ংক্রিয়ভাবে storage থেকে মুছে যায় না।
