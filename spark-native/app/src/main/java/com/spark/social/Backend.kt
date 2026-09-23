@@ -229,6 +229,19 @@ class SparkApi private constructor(private val context: Context) {
     suspend fun removeMedia(path: String) {
         request("/storage/v1/object/${Backend.BUCKET}","DELETE",json("prefixes" to JSONArray().put(path)))
     }
+    // Refreshed user JWT keeps private media behind existing Storage RLS.
+    // Unlike a 60-second signed URL, later video range requests remain authorized.
+    suspend fun mediaAccess(path: String): MediaAccess {
+        require(path.isNotBlank()) { "Media is missing." }
+        fresh()
+        val token = session?.s("access_token").orEmpty()
+        check(token.isNotBlank()) { "Sign in again to view this media." }
+        val encoded = path.split("/").joinToString("/") { Uri.encode(it) }
+        return MediaAccess(
+            "${Backend.URL}/storage/v1/object/authenticated/${Backend.BUCKET}/$encoded",
+            mapOf("apikey" to Backend.KEY, "Authorization" to "Bearer $token")
+        )
+    }
     suspend fun signedUrl(path: String): String {
         if(path.isBlank()) return ""
         val result=JSONObject(request("/storage/v1/object/sign/${Backend.BUCKET}/$path","POST",json("expiresIn" to 60)))

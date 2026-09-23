@@ -24,6 +24,11 @@ jobs:
           log-accepted-android-sdk-licenses: false
       - name: Install Android SDK 35
         run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Reuse development signing key
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: spark-debug-signing-v1
       - uses: gradle/actions/setup-gradle@v4
       - name: Test call lifecycle
         run: node --test tests/call.test.cjs
@@ -37,6 +42,19 @@ jobs:
           name: Spark-debug-APK
           path: spark-native/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Verify MP4 and WebM playback on Android
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 29
+          arch: x86_64
+          disable-animations: true
+          working-directory: spark-native
+          script: ./gradlew :app:connectedDebugAndroidTest --console=plain
       - uses: actions/upload-artifact@v4
         if: always()
         with:

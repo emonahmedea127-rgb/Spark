@@ -4,14 +4,14 @@ import android.app.Application
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
-import android.widget.MediaController
-import android.widget.VideoView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -58,7 +58,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.time.Instant
-private val Blue=Color(0xFF1877F2)
+internal val Blue=Color(0xFF5265F6)
 data class Page(val name:String,val id:String="",val title:String="")
 class SparkViewModel(app:Application):AndroidViewModel(app) {
     val api=SparkApi.get(app)
@@ -124,7 +124,12 @@ class MainActivity:ComponentActivity() {
     }
 }
 @Composable fun SparkTheme(dark:Boolean,content:@Composable ()->Unit) {
-    MaterialTheme(colorScheme=if(dark)darkColorScheme(primary=Blue)else lightColorScheme(primary=Blue,background=Color(0xFFF0F2F5),surface=Color.White),content=content)
+    MaterialTheme(
+        colorScheme=if(dark)darkColorScheme(primary=Color(0xFFB6BEFF), background=Color(0xFF10121B),surface=Color(0xFF1C1F2C))
+            else lightColorScheme(primary=Blue,secondary=Color(0xFF8B5CF6),background=Color(0xFFF3F4FA),surface=Color.White, onSurface=Color(0xFF20243D)),
+        shapes=Shapes(small=RoundedCornerShape(12.dp),medium=RoundedCornerShape(20.dp),large=RoundedCornerShape(28.dp)),
+        content=content
+    )
 }
 @Composable fun SparkApp(vm:SparkViewModel) {
     val snacks=remember {
@@ -142,7 +147,7 @@ class MainActivity:ComponentActivity() {
     Scaffold(snackbarHost= {
         SnackbarHost(snacks)
     },topBar= {
-        if(vm.me!=null)TopAppBar(title= {
+        if(vm.me!=null)TopAppBar(colors=TopAppBarDefaults.topAppBarColors(containerColor=MaterialTheme.colorScheme.background),title= {
             Text(if(vm.stack.size==1&&vm.page.name=="Home")"spark" else vm.page.title.ifBlank {
                 vm.page.name
             },color=if(vm.page.name=="Home")Blue else MaterialTheme.colorScheme.onSurface,fontWeight=FontWeight.Bold,fontSize=if(vm.page.name=="Home")32.sp else 23.sp)
@@ -177,7 +182,7 @@ class MainActivity:ComponentActivity() {
                 },icon= {
                     Icon(icon,label)
                 },label= {
-                    Text(label,fontSize=10.sp)
+                    Text(label,fontSize=11.sp,fontWeight=if(vm.page.name==name)FontWeight.Bold else FontWeight.Normal)
                 })
             }
         }
@@ -389,83 +394,6 @@ class MainActivity:ComponentActivity() {
         if(profile.s("avatar_path").isNotEmpty())PrivateImage(vm,profile.s("avatar_path"),Modifier.fillMaxSize())
     }
 }
-@Composable fun PrivateImage(vm:SparkViewModel,path:String,modifier:Modifier=Modifier) {
-    var url by remember(path) {
-        mutableStateOf("")
-    }
-    LaunchedEffect(path,vm.revision) {
-        runCatching {
-            vm.api.signedUrl(path)
-        }.onSuccess {
-            url=it
-        }
-    }
-    if(url.isNotBlank())AsyncImage(model=ImageRequest.Builder(LocalContext.current).data(url).diskCachePolicy(CachePolicy.DISABLED).memoryCachePolicy(CachePolicy.DISABLED).build(),contentDescription="Shared image",contentScale=ContentScale.Crop,modifier=modifier)
-}
-@Composable fun Media(vm:SparkViewModel,path:String,type:String,modifier:Modifier=Modifier) {
-    if(path.isBlank())return
-    var play by remember(path) {
-        mutableStateOf(false)
-    }
-    if(type=="video")Box(modifier.fillMaxWidth().height(260.dp).background(Color(0xFF111827)).clickable {
-        play=true
-    },contentAlignment=Alignment.Center) {
-        Column(horizontalAlignment=Alignment.CenterHorizontally) {
-            Icon(Icons.Outlined.PlayCircle,"Play video",tint=Color.White,modifier=Modifier.size(64.dp))
-            Text("Tap to play",color=Color.White)
-        }
-    }else PrivateImage(vm,path,modifier.fillMaxWidth().height(300.dp))
-    if(play)VideoDialog(vm,path) {
-        play=false
-    }
-}
-@Composable fun VideoDialog(vm:SparkViewModel,path:String,onClose:()->Unit) {
-    var url by remember {
-        mutableStateOf("")
-    }
-    var video by remember {
-        mutableStateOf<VideoView?>(null)
-    }
-    LaunchedEffect(path) {
-        try {
-            url=vm.api.signedUrl(path)
-        }catch(e:Exception) {
-            vm.notice=e.message
-            onClose()
-        }
-    }
-    DisposableEffect(Unit) {
-        onDispose {
-            video?.stopPlayback()
-        }
-    }
-    androidx.compose.ui.window.Dialog(onDismissRequest=onClose) {
-        Surface(shape=RoundedCornerShape(16.dp)) {
-            Column {
-                if(url.isNotBlank())AndroidView(factory= {
-                    ctx->VideoView(ctx).apply {
-                        video=this
-                        setVideoURI(Uri.parse(url))
-                        setMediaController(MediaController(ctx).apply {
-                            setAnchorView(video)
-                        })
-                        setOnPreparedListener {
-                            start()
-                        }
-                        setOnErrorListener {
-                            _,_,_->vm.notice="Cannot play this video. Check the format and try again."
-                            onClose()
-                            true
-                        }
-                    }
-                },modifier=Modifier.fillMaxWidth().height(420.dp))
-                TextButton(onClick=onClose) {
-                    Text("Close video")
-                }
-            }
-        }
-    }
-}
 fun ago(raw:String):String=runCatching {
     val seconds=(Instant.now().epochSecond-Instant.parse(raw).epochSecond).coerceAtLeast(0)
     when {
@@ -505,12 +433,22 @@ fun ago(raw:String):String=runCatching {
             loading=false
         }
     }
-    LazyColumn(verticalArrangement=Arrangement.spacedBy(8.dp)) {
+    LazyColumn(contentPadding=PaddingValues(bottom=20.dp),verticalArrangement=Arrangement.spacedBy(14.dp)) {
+        item {
+            Row(Modifier.fillMaxWidth().padding(horizontal=20.dp,vertical=6.dp),verticalAlignment=Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(if(kind=="reel")"Watch & discover" else "Your daily spark",style=MaterialTheme.typography.headlineSmall,fontWeight=FontWeight.Bold)
+                    Text(if(kind=="reel")"Big stories. Little moments." else "Moments from your people",style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Icon(Icons.Outlined.AutoAwesome,null,tint=Blue,modifier=Modifier.size(28.dp))
+            }
+        }
         if(kind=="post"&&community==null)item {
             Stories(vm)
         }
         item {
-            Surface {
+            Surface(modifier=Modifier.padding(horizontal=12.dp),shape=RoundedCornerShape(24.dp),tonalElevation=1.dp) {
+                Column {
                 Row(Modifier.fillMaxWidth().clickable {
                     compose=true
                 }.padding(16.dp),verticalAlignment=Alignment.CenterVertically) {
@@ -519,6 +457,12 @@ fun ago(raw:String):String=runCatching {
                     }
                     Text(if(kind=="reel")"Share a reel…" else "What's on your mind?",modifier=Modifier.weight(1f).padding(horizontal=14.dp),color=MaterialTheme.colorScheme.onSurfaceVariant)
                     Icon(Icons.Outlined.PhotoLibrary,"Create post",tint=Color(0xFF20A45B))
+                }
+                HorizontalDivider(Modifier.padding(horizontal=16.dp),color=MaterialTheme.colorScheme.outlineVariant.copy(alpha=.45f))
+                Row(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=8.dp),horizontalArrangement=Arrangement.SpaceBetween) {
+                    TextButton(onClick={compose=true}) { Icon(Icons.Outlined.Collections,null,Modifier.size(18.dp)); Text("  Photo / Video") }
+                    FilledTonalButton(onClick={compose=true},contentPadding=PaddingValues(horizontal=18.dp,vertical=8.dp)) { Icon(Icons.Outlined.Add,null,Modifier.size(18.dp));Text(" Create") }
+                }
                 }
             }
         }
@@ -546,76 +490,6 @@ fun ago(raw:String):String=runCatching {
     if(compose)ComposeDialog(vm,kind,community) {
         compose=false
         offset=0
-    }
-}
-@Composable fun Stories(vm:SparkViewModel) {
-    var create by remember {
-        mutableStateOf(false)
-    }
-    var selected by remember {
-        mutableStateOf<JSONObject?>(null)
-    }
-    Rows(vm,"stories", {
-        vm.api.feed("story")
-    }) {
-        stories->LazyRow(contentPadding=PaddingValues(12.dp),horizontalArrangement=Arrangement.spacedBy(10.dp)) {
-            item {
-                Card(onClick= {
-                    create=true
-                },modifier=Modifier.width(108.dp).height(158.dp)) {
-                    Column(Modifier.fillMaxSize().background(Blue).padding(12.dp),verticalArrangement=Arrangement.SpaceBetween) {
-                        Icon(Icons.Outlined.AddCircle,"Create story",tint=Color.White,modifier=Modifier.size(36.dp))
-                        Text("Create\nstory",color=Color.White,fontWeight=FontWeight.Bold)
-                    }
-                }
-            }
-            items(stories,key= {
-                it.id()
-            }) {
-                story->Card(onClick= {
-                    selected=story
-                },modifier=Modifier.width(108.dp).height(158.dp)) {
-                    Box(Modifier.fillMaxSize().background(Color(0xFF5344CC))) {
-                        if(story.s("media_type")=="image")PrivateImage(vm,story.s("media_path"),Modifier.fillMaxSize())
-                        Column(Modifier.fillMaxSize().padding(10.dp),verticalArrangement=Arrangement.SpaceBetween) {
-                            Avatar(vm,story.child("author"),30)
-                            Text(story.child("author").s("display_name"),color=Color.White,fontWeight=FontWeight.Bold,maxLines=2)
-                        }
-                    }
-                }
-            }
-        }
-    }
-    if(create)ComposeDialog(vm,"story") {
-        create=false
-    }
-    selected?.let {
-        s->AlertDialog(onDismissRequest= {
-            selected=null
-        },title= {
-            Text(s.child("author").s("display_name"))
-        },text= {
-            Column {
-                Text(s.s("body"))
-                Media(vm,s.s("media_path"),s.s("media_type"))
-            }
-        },confirmButton= {
-            TextButton(onClick= {
-                selected=null
-            }) {
-                Text("Close")
-            }
-        },dismissButton= {
-            if(s.s("author_id")==vm.api.userId)TextButton(onClick= {
-                vm.work {
-                    vm.api.delete("posts","id=eq.${s.id()}")
-                    selected=null
-                    vm.refresh()
-                }
-            }) {
-                Text("Delete")
-            }
-        })
     }
 }
 @Composable fun ComposeDialog(vm:SparkViewModel,kind:String,community:String?=null,onClose:()->Unit) {
@@ -710,7 +584,8 @@ fun ago(raw:String):String=runCatching {
         it.s("user_id")==vm.api.userId
     }
     val author=post.child("author")
-    Surface {
+    Surface(modifier=Modifier.padding(horizontal=12.dp),shape=RoundedCornerShape(24.dp),shadowElevation=1.dp,
+        border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant.copy(alpha=.35f))) {
         Column {
             Row(Modifier.padding(12.dp),verticalAlignment=Alignment.CenterVertically) {
                 Avatar(vm,author) {
