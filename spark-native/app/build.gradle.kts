@@ -14,6 +14,15 @@ android {
         versionName = "1.2.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
+    // CI restores this key before Gradle starts. Local developers keep the default debug key.
+    if (rootProject.file(".signing/debug.keystore").exists()) {
+        signingConfigs.getByName("debug") {
+            storeFile = rootProject.file(".signing/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
     buildFeatures { compose = true; buildConfig = true }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = "17" }

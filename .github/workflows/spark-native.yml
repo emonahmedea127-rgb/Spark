@@ -27,8 +27,14 @@ jobs:
       - name: Reuse development signing key
         uses: actions/cache@v4
         with:
-          path: ~/.android/debug.keystore
-          key: spark-debug-signing-v1
+          path: spark-native/.signing/debug.keystore
+          key: spark-debug-signing-explicit-v2
+      - name: Ensure development signing key
+        run: |
+          mkdir -p .signing
+          if [ ! -f .signing/debug.keystore ]; then
+            keytool -genkeypair -keystore .signing/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname 'CN=Spark Debug,O=Spark,C=BD'
+          fi
       - uses: gradle/actions/setup-gradle@v4
         with:
           cache-read-only: false
