@@ -1,0 +1,11 @@
+{
+  "file": "Spark-v1.5.apk",
+  "bytes": 21856087,
+  "sha256": "cb317a987e5062485d35bb7647735879d681e2f124194309f933fee8c5df965f",
+  "certificate_sha256": "e9fdc8807f4a53342b345600971dfc873907f420959ac3425fa5c30665fe35d8",
+  "same_signer_as_v1_4": true,
+  "version_name": "1.5.0",
+  "version_code": 6,
+  "build_commit": "2e0dbf9904b0e4289f6eefa4df7d686c969f1eb0",
+  "run": 35953654606
+}
