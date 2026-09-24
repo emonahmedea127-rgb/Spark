@@ -1,5 +1,16 @@
 # Spark Android
 
+## 1.5 আপডেট
+
+- বড় cover/avatar preview ও camera controls-সহ আলাদা Edit profile page। Intro, category, personal details, links, communities, offers, work, education, hobbies, interests, travel ও contact info sections।
+- প্রতিটি detail যোগ/সম্পাদনা/মুছে ফেলা, একাধিক work/education entry, Pin to intro ও Public/Friends/Only me audience। Phone, email, birthday ও family নতুন করে যোগ করলে default Only me।
+- Feed-এ বড় horizontal People You May Know cards; Friends → Suggestions-এ পূর্ণ তালিকা, Add friend, Remove, profile visit এবং Show more people।
+- Spark ranking: প্রতি mutual friend 100 points; প্রতি মিলে যাওয়া public detail kind 8 points (সর্বোচ্চ 88); profile photo থাকলে 2 points। সমান score-এ stable ID ordering। Private/friends-only তথ্য ranking-এ ব্যবহার হয় না। Self, existing friends, pending requests, blocks ও dismissed profiles বাদ যায়। এটি Spark-এর নিজস্ব heuristic, Facebook-এর proprietary algorithm নয়।
+- নতুন profile details backend RLS দিয়ে সুরক্ষিত। Pin করলেও audience বদলায় না। অন্যান্য profile-এর friendship edges সরাসরি প্রকাশ হয় না; scoped RPC শুধু mutual count দেয়।
+
+Connected project-এ `backend/profile-discovery-v1.5.sql` প্রয়োগ করা হয়েছে। নতুন project-এ base schema → comments-v1.3.sql → profile-photos-v1.4.sql → profile-discovery-v1.5.sql ক্রমানুসারে প্রয়োগ করো। `verify.sql`-এর 43 এবং `verify-profile-discovery.sql`-এর 20 rollback-only database checks পাস করেছে।
+
+
 ## 1.4 আপডেট
 
 - Reaction সংখ্যা বা emoji চাপলে কারা react করেছে তার paged তালিকা; reaction অনুযায়ী filter ও profile খোলা যায়।
@@ -23,7 +34,7 @@ Existing connected project-এ `backend/comments-v1.3.sql` ইতিমধ্য
 
 Emon Ahmed-এর জন্য নতুন native Android social app project। Kotlin + Jetpack Compose। Backend: Supabase Auth, PostgreSQL এবং private Storage।
 
-**বর্তমান অবস্থা:** Spark 1.2-এ image caching/compression ও দেওয়া screenshot অনুযায়ী মূল screens-এর layout যুক্ত হয়েছে। প্রথম verification build-এ compilation/lint, ৭টি Android test এবং ৪টি call test পাস করেছে। চূড়ান্ত APK-এর run ও hash `docs/VERIFICATION-1.2.md`-এ আছে।
+**বর্তমান source version:** Spark 1.5.0 (versionCode 6)। Build ও device verification-এর ফলাফল version অনুযায়ী `docs/VERIFICATION-*.md` ফাইলে দেওয়া আছে।
 
 ## 1.2 আপডেট
 
@@ -99,7 +110,7 @@ repository root-এর `.github/workflows/spark-native.yml` যুক্ত আ�
 - Groups/pages public; private groups, moderator dashboard, live streaming, ads, payments, encrypted messenger এবং Facebook-এর সম্পূর্ণ feature set যুক্ত করা হয়নি। Google/phone OTP login-ও নেই।
 - Password recovery কোড email template-এ থাকলে app-এ reset করা যায়। বর্তমান template/email delivery এখানে end-to-end যাচাই হয়নি।
 - Upload limit 25 MB; JPG/PNG/WebP/MP4/WebM। Video transcoding, resumable upload ও automatic unused-file cleanup নেই। Deleted/expired content-এর media স্বয়ংক্রিয়ভাবে storage থেকে মুছে যায় না।
-- Most discovery lists have a bounded first page. Feed ও chat-এর load-more আছে। Millions of users-এর load test করা হয়নি।
+- Feed, chat ও people suggestions-এর load-more আছে। Ranking live database query; millions of users-এর load test করা হয়নি। Profile detail-এর Public audience signed-in Spark members দেখতে পারেন। Earned badges, ads system ও external community integration নেই; communities/offers এখানে profile text details।
 - Reports database-এ জমা হয়; moderator review Supabase dashboard থেকে করতে হবে।
 - Existing project-এর Auth tenant shared, কিন্তু পুরোনো social tables পরিবর্তন করা হয়নি।
 

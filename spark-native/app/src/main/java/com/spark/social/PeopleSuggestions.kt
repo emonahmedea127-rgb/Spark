@@ -23,7 +23,7 @@ import org.json.JSONObject
 
 suspend fun SparkApi.suggestions(offset:Int=0):List<JSONObject> = JSONArray(request("/rest/v1/rpc/sparknew_suggestions","POST",json("page_size" to 20,"page_offset" to offset))).rows()
 
-@Composable fun PeopleSuggestions(vm:SparkViewModel,fullPage:Boolean=false,load:suspend(Int)->List<JSONObject>={vm.api.suggestions(it)},sendRequest:suspend(JSONObject)->Unit={vm.api.insert("friendships",json("sender_id" to vm.api.userId,"receiver_id" to it.id()));Unit},dismiss:suspend(JSONObject)->Unit={vm.api.insert("suggestion_dismissals",json("owner_id" to vm.api.userId,"target_id" to it.id()));Unit}) {
+@Composable fun PeopleSuggestions(vm:SparkViewModel,fullPage:Boolean=false,load:suspend(Int)->List<JSONObject> = {vm.api.suggestions(it)},sendRequest:suspend(JSONObject)->Unit={vm.api.insert("friendships",json("sender_id" to vm.api.userId,"receiver_id" to it.id()));Unit},dismiss:suspend(JSONObject)->Unit={vm.api.insert("suggestion_dismissals",json("owner_id" to vm.api.userId,"target_id" to it.id()));Unit}) {
     var people by remember {mutableStateOf<List<JSONObject>>(emptyList())}
     var loading by remember {mutableStateOf(false)}
     var more by remember {mutableStateOf(true)}
