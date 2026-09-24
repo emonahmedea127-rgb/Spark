@@ -169,6 +169,9 @@ class MainActivity:ComponentActivity() {
                     "Menu"->MenuScreen(vm)
                     "Profile"->ProfileScreen(vm,vm.page.id)
                     "Profile settings"->ProfileSettingsScreen(vm)
+                    "Edit profile"->EditProfileScreen(vm)
+                    "About"->ProfileAboutScreen(vm,vm.page.id)
+                    "Suggestions"->PeopleSuggestions(vm,fullPage=true)
                     "Search"->SearchScreen(vm)
                     "Comments"->CommentsScreen(vm,vm.page.id)
                     "Chats"->ChatsScreen(vm)
@@ -396,6 +399,7 @@ fun ago(raw:String):String=runCatching {
     LazyColumn(state=listState,contentPadding=PaddingValues(bottom=12.dp),verticalArrangement=Arrangement.spacedBy(0.dp)) {
         item { FeedComposer(vm) { compose=true } }
         if(kind=="post"&&community==null)item { Stories(vm) }
+        if(kind=="post"&&community==null)item { PeopleSuggestions(vm) }
         items(posts,key= {
             it.id()
         }) {
@@ -616,7 +620,7 @@ fun ago(raw:String):String=runCatching {
         LazyColumn(verticalArrangement=Arrangement.spacedBy(6.dp)) {
             item {
                 Row(Modifier.padding(horizontal=12.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                    AssistChip(onClick={vm.go("Search")},label={Text("Find friends")},shape=CircleShape)
+                    AssistChip(onClick={vm.go("Suggestions")},label={Text("Suggestions")},shape=CircleShape)
                     FilterChip(selected=onlyFriends,onClick={onlyFriends=!onlyFriends},label={Text(if(onlyFriends)"Show requests" else "Your friends · ${accepted.size}")},shape=CircleShape)
                 }
             }
@@ -721,9 +725,6 @@ fun ago(raw:String):String=runCatching {
     if(newStory)ComposeDialog(vm,"story") { newStory=false }
     var previewPhoto by remember { mutableStateOf("") }
     if(previewPhoto.isNotBlank())PhotoDialog(vm,previewPhoto) { previewPhoto="" }
-    var edit by remember {
-        mutableStateOf(false)
-    }
     var report by remember {
         mutableStateOf(false)
     }
@@ -794,7 +795,7 @@ fun ago(raw:String):String=runCatching {
                                         }
                                     }
                                     if(own)Row(Modifier.fillMaxWidth().padding(vertical=16.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                                        Button(onClick={edit=true},modifier=Modifier.weight(1f),shape=RoundedCornerShape(8.dp)) { Icon(Icons.Outlined.Edit,null,Modifier.size(18.dp));Text(" Edit profile") }
+                                        Button(onClick={vm.go("Edit profile")},modifier=Modifier.weight(1f),shape=RoundedCornerShape(8.dp)) { Icon(Icons.Outlined.Edit,null,Modifier.size(18.dp));Text(" Edit profile") }
                                         FilledTonalButton(onClick={newStory=true},modifier=Modifier.weight(1f),shape=RoundedCornerShape(8.dp)) { Icon(Icons.Outlined.AddCircleOutline,null,Modifier.size(18.dp));Text(" Add to story") }
                                     }else {
                                         Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
@@ -822,6 +823,7 @@ fun ago(raw:String):String=runCatching {
                             }
                         }
                     }
+                    item { ProfileAbout(vm,id) }
                     if(!own)item {
                         Rows(vm,"relationship:$id", {
                             vm.api.rows("friendships","or=(and(sender_id.eq.${vm.api.userId},receiver_id.eq.$id),and(sender_id.eq.$id,receiver_id.eq.${vm.api.userId}))")
@@ -860,17 +862,7 @@ fun ago(raw:String):String=runCatching {
                     }
                 }
             }
-            if(edit)TextForm("Edit profile",listOf("Name" to p.s("display_name"),"Bio" to p.s("bio")),vm, {
-                edit=false
-            }) {
-                v->require(v[0].isNotBlank()) {
-                    "Enter your name."
-                }
-                vm.api.update("profiles","id=eq.$id",json("display_name" to v[0].trim(),"bio" to v[1]))
-                vm.me=vm.api.ensureProfile()
-                edit=false
-                vm.refresh()
-            }
+
         }
     }
     if(report)ReportDialog(vm,"profile",id) {

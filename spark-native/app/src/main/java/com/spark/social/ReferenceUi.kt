@@ -185,18 +185,14 @@ import kotlinx.coroutines.launch
 }
 
 @Composable fun ProfileSettingsScreen(vm:SparkViewModel) {
-    var edit by remember { mutableStateOf(false) }
     LazyColumn {
-        item { SettingsRow("Edit profile",Icons.Outlined.Edit) { edit=true } }
+        item { SettingsRow("Edit profile",Icons.Outlined.Edit) { vm.go("Edit profile") } }
         item { SettingsRow("Saved posts",Icons.Outlined.BookmarkBorder) { vm.go("Saved") } }
         item { SettingsRow("Blocked accounts",Icons.Outlined.Block) { vm.go("Blocked") } }
         item { SettingsRow("Find people",Icons.Outlined.Search) { vm.go("Search") } }
         item { SettingsRow("Dark mode",Icons.Outlined.DarkMode) { vm.dark=!vm.dark } }
         item { SettingsRow("Refresh profile",Icons.Outlined.Refresh) { vm.refresh();vm.back() } }
         item { SettingsRow("More settings",Icons.Outlined.Settings) { vm.go("Menu") } }
-    }
-    if(edit)TextForm("Edit profile",listOf("Name" to vm.me!!.s("display_name"),"Bio" to vm.me!!.s("bio")),vm,{edit=false}) { values->
-        require(values[0].isNotBlank()) { "Enter your name." };vm.api.update("profiles","id=eq.${vm.api.userId}",json("display_name" to values[0].trim(),"bio" to values[1]));vm.me=vm.api.ensureProfile();edit=false;vm.refresh()
     }
 }
 @Composable private fun SettingsRow(label:String,icon:ImageVector,onClick:()->Unit) {
