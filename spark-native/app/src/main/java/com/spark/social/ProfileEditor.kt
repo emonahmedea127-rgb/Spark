@@ -64,12 +64,12 @@ fun audienceLabel(value:String)=when(value){"public"->"Public";"friends"->"Frien
         vm.api.update("profiles","id=eq.${vm.api.userId}",json("display_name" to values[0].trim(),"bio" to values[1].trim()))
         vm.me=vm.api.ensureProfile();vm.refresh();basic=false
     }
-    selected?.let {field->ProfileDetailDialog(field,entry,onClose={selected=null},onSave={title,detail,visibility,pinned->
-        val body=json("title" to title,"detail" to detail,"visibility" to visibility,"pinned" to pinned)
+    selected?.let {field->ProfileDetailDialog(field,entry,onClose={selected=null},onSave={title,detail,visibility,pinned,metadata->
+        val body=json("title" to title,"detail" to detail,"visibility" to visibility,"pinned" to pinned,"metadata" to metadata)
         if(entry==null)vm.api.insert("profile_details",body.put("owner_id",vm.api.userId).put("kind",field.kind))
         else vm.api.update("profile_details","id=eq.${entry!!.id()}",body)
         vm.refresh()
-    },onDelete=entry?.let {row->{vm.api.delete("profile_details","id=eq.${row.id()}");vm.refresh()}})}
+    },onDelete=entry?.let {row->{vm.api.delete("profile_details","id=eq.${row.id()}");vm.refresh()}},api=vm.api)}
 }
 @Composable fun ProfileEditorContent(vm:SparkViewModel,profile:JSONObject,details:List<JSONObject>,onPhoto:(String)->Unit,onBasic:()->Unit,onEdit:(ProfileField,JSONObject?)->Unit) {
     LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(bottom=32.dp)) {
@@ -132,36 +132,6 @@ fun audienceLabel(value:String)=when(value){"public"->"Public";"friends"->"Frien
         }
         Icon(Icons.Outlined.Edit,"Edit $title",Modifier.size(24.dp),tint=MaterialTheme.colorScheme.onSurfaceVariant)
     }
-}
-@Composable fun ProfileDetailDialog(field:ProfileField,entry:JSONObject?,onClose:()->Unit,onSave:suspend(String,String,String,Boolean)->Unit,onDelete:(suspend()->Unit)?=null) {
-    var title by rememberSaveable(field.kind,entry?.id()){mutableStateOf(entry?.s("title")?:"")}
-    var detail by rememberSaveable(field.kind,entry?.id()){mutableStateOf(entry?.s("detail")?:"")}
-    var visibility by rememberSaveable(field.kind,entry?.id()){mutableStateOf(entry?.s("visibility")?:if(field.privateDefault)"private" else "public")}
-    var pinned by rememberSaveable(field.kind,entry?.id()){mutableStateOf(entry?.optBoolean("pinned")?:false)}
-    var error by remember{mutableStateOf<String?>(null)};var busy by remember{mutableStateOf(false)}
-    var confirmDelete by remember{mutableStateOf(false)}
-    val scope=rememberCoroutineScope()
-    fun submit(delete:Boolean=false){scope.launch {busy=true;error=null;try{
-        if(delete)onDelete?.invoke() else {
-            require(title.trim().isNotEmpty()){ "Enter ${field.label.lowercase()}." }
-            require(title.length<=160&&detail.length<=500){"Keep the title under 160 and details under 500 characters."}
-            if(field.kind in listOf("link","media_kit"))require(Uri.parse(title.trim()).let {it.scheme in listOf("https","http")&&!it.host.isNullOrBlank()}){"Enter a full https:// website address."}
-            onSave(title.trim(),detail.trim(),visibility,pinned)
-        };onClose()
-    }catch(e:CancellationException){throw e}catch(e:Exception){error=e.message?:"Couldn't save. Try again."}finally{busy=false}}}
-    AlertDialog(onDismissRequest={if(!busy)onClose()},title={Text(if(confirmDelete)"Delete this detail?" else field.label)},text={
-        if(confirmDelete)Text("This detail will be removed from your profile.")else Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(12.dp)) {
-            OutlinedTextField(title,{title=it},label={Text(field.label)},placeholder={Text(field.hint)},enabled=!busy,modifier=Modifier.fillMaxWidth())
-            OutlinedTextField(detail,{detail=it},label={Text(if(field.kind=="work")"Role and dates (optional)" else if(field.kind=="education")"Qualification and years (optional)" else "Details (optional)")},enabled=!busy,modifier=Modifier.fillMaxWidth())
-            Text("Who can see this?",fontWeight=FontWeight.SemiBold)
-            listOf("public","friends","private").forEach {value->Row(Modifier.fillMaxWidth().clickable(enabled=!busy){visibility=value},verticalAlignment=Alignment.CenterVertically){RadioButton(selected=visibility==value,onClick={visibility=value},enabled=!busy);Text(audienceLabel(value))}}
-            Row(verticalAlignment=Alignment.CenterVertically){Checkbox(pinned,{pinned=it},enabled=!busy);Text("Pin to intro")}
-            Text("Pinned details keep the audience you choose.",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
-            if(onDelete!=null)TextButton(enabled=!busy,onClick={confirmDelete=true}){Text("Delete detail",color=MaterialTheme.colorScheme.error)}
-            error?.let{Text(it,color=MaterialTheme.colorScheme.error)}
-        }
-        if(confirmDelete&&error!=null)Text(error!!,color=MaterialTheme.colorScheme.error)
-    },confirmButton={TextButton(enabled=!busy,onClick={submit(confirmDelete)}){Text(if(busy)"Saving…" else if(confirmDelete)"Delete" else "Save")}},dismissButton={TextButton(enabled=!busy,onClick={if(confirmDelete)confirmDelete=false else onClose()}){Text("Cancel")}})
 }
 @Composable fun ProfileAbout(vm:SparkViewModel,id:String) {
     Rows(vm,"profile-about:$id",{vm.api.rows("profile_details","owner_id=eq.$id&order=pinned.desc,created_at.asc&limit=200")}) {details->

@@ -46,14 +46,14 @@ class ProfileDiscoveryTest {
         var closed=false
         val field=profileSections.flatMap{it.fields}.first{it.kind=="phone"}
         rule.runOnUiThread {rule.activity.setContent {SparkTheme(false) {
-            ProfileDetailDialog(field,null,{closed=true},{title,detail,audience,pinned->saved=listOf(title,detail,audience,pinned)})
+            ProfileDetailDialog(field,null,{closed=true},{title,detail,audience,pinned,_->saved=listOf(title,detail,audience,pinned)})
         }}}
         rule.onAllNodes(hasSetTextAction())[0].performTextInput("01700000000")
-        rule.onNode(isSelected()).assertExists()
+        rule.onNodeWithText("Only me").assertExists()
         rule.onNodeWithText("Pin to intro").performScrollTo()
         rule.onNode(isToggleable()).performClick()
         rule.onNodeWithText("Save").performClick()
-        rule.runOnIdle {assertEquals(listOf("01700000000","","private",true),saved);assertTrue(closed)}
+        rule.runOnIdle {assertEquals(listOf("+8801700000000","","private",true),saved);assertTrue(closed)}
     }
     @Test fun suggestionsSendRemoveAndOpenProfile() {
         var sent="";var removed=""
