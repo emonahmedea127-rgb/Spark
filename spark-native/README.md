@@ -1,5 +1,12 @@
 # Spark Android
 
+## 1.6 আপডেট
+
+Generic typing popup বদলে full-screen field-specific editor: category/gender/relationship selection, birthday calendar, interactive location map, employer/school search ও work/education structured controls। Phone/email/URL-এ উপযুক্ত keyboard ও validation। Map drag/pinch/tap, zoom buttons এবং place search যুক্ত। সব তথ্যের audience বজায় থাকে। `docs/UPDATE-1.6.md`-এ বিস্তারিত ও map service সীমাবদ্ধতা আছে।
+
+নতুন project-এ 1.5 migration-এর পরে `backend/profile-pickers-v1.6.sql` চালাও। Connected project-এ ইতিমধ্যে প্রয়োগ হয়েছে।
+
+
 ## 1.5 আপডেট
 
 - বড় cover/avatar preview ও camera controls-সহ আলাদা Edit profile page। Intro, category, personal details, links, communities, offers, work, education, hobbies, interests, travel ও contact info sections।
@@ -34,7 +41,7 @@ Existing connected project-এ `backend/comments-v1.3.sql` ইতিমধ্য
 
 Emon Ahmed-এর জন্য নতুন native Android social app project। Kotlin + Jetpack Compose। Backend: Supabase Auth, PostgreSQL এবং private Storage।
 
-**বর্তমান source version:** Spark 1.5.0 (versionCode 6)। Build ও device verification-এর ফলাফল version অনুযায়ী `docs/VERIFICATION-*.md` ফাইলে দেওয়া আছে।
+**বর্তমান source version:** Spark 1.6.0 (versionCode 7)। Build ও device verification-এর ফলাফল version অনুযায়ী `docs/VERIFICATION-*.md` ফাইলে দেওয়া আছে।
 
 ## 1.2 আপডেট
 

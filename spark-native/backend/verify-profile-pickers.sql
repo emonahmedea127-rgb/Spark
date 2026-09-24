@@ -1,0 +1,36 @@
+begin;
+create temp table spark_picker_checks(name text,passed boolean);
+grant select,insert on spark_picker_checks to authenticated;
+create function pg_temp.verify(ok boolean,label text) returns void language plpgsql as $$begin
+ if ok is not true then raise exception 'FAILED: %',label;end if;
+ insert into spark_picker_checks values(label,true);
+end;$$;
+create function pg_temp.reject(statement text,label text) returns void language plpgsql as $$declare denied boolean=false;begin
+ begin execute statement;exception when check_violation or insufficient_privilege or invalid_text_representation then denied=true;end;
+ perform pg_temp.verify(denied,label);
+end;$$;
+select set_config('test.owner',gen_random_uuid()::text,true),set_config('test.other',gen_random_uuid()::text,true);
+insert into auth.users(id,email,raw_user_meta_data) select current_setting('test.'||who)::uuid,'spark-picker-'||current_setting('test.'||who)||'@example.invalid','{}'::jsonb from unnest(array['owner','other'])who;
+insert into public.sparknew_profiles(id,display_name) select current_setting('test.'||who)::uuid,who from unnest(array['owner','other'])who;
+set local role authenticated;
+select set_config('request.jwt.claims',json_build_object('sub',current_setting('test.owner'),'role','authenticated')::text,true);
+insert into public.sparknew_profile_details(owner_id,kind,title,metadata) values(current_setting('test.owner')::uuid,'city','Gazipur','{"latitude":24.0023,"longitude":90.4264,"source":"map"}');
+select pg_temp.verify((select visibility='private' and metadata->>'latitude'='24.0023' from public.sparknew_profile_details where owner_id=current_setting('test.owner')::uuid),'Map coordinates persist with private default');
+update public.sparknew_profile_details set metadata='{"latitude":23.81,"longitude":90.41,"source":"map"}' where owner_id=current_setting('test.owner')::uuid;
+select pg_temp.verify((select metadata->>'latitude'='23.81' from public.sparknew_profile_details where owner_id=current_setting('test.owner')::uuid),'Owner can update structured coordinates');
+select pg_temp.reject(format('update public.sparknew_profile_details set metadata=''{"latitude":24}'' where owner_id=%L',current_setting('test.owner')),'Partial coordinate pairs rejected');
+select pg_temp.reject(format('update public.sparknew_profile_details set metadata=''{"latitude":91,"longitude":90}'' where owner_id=%L',current_setting('test.owner')),'Invalid latitude rejected');
+select pg_temp.reject(format('update public.sparknew_profile_details set metadata=''{"latitude":24,"longitude":181}'' where owner_id=%L',current_setting('test.owner')),'Invalid longitude rejected');
+select pg_temp.reject(format('update public.sparknew_profile_details set metadata=''[]'' where owner_id=%L',current_setting('test.owner')),'Metadata must be an object');
+select pg_temp.reject(format('update public.sparknew_profile_details set metadata=jsonb_build_object(''value'',repeat(''x'',5000)) where owner_id=%L',current_setting('test.owner')),'Oversized metadata rejected');
+insert into public.sparknew_profile_details(owner_id,kind,title,visibility,metadata) values(current_setting('test.owner')::uuid,'work','Spark test employer','public','{"role":"Developer","employment":"Full-time","current":true}');
+select pg_temp.reject(format('update public.sparknew_profile_details set metadata=''{"latitude":24,"longitude":90}'' where kind=''work'' and owner_id=%L',current_setting('test.owner')),'Coordinates limited to location entries');
+select set_config('request.jwt.claims',json_build_object('sub',current_setting('test.other'),'role','authenticated')::text,true);
+select pg_temp.verify((select count(*)=0 from public.sparknew_profile_details where owner_id=current_setting('test.owner')::uuid and kind='city'),'Stranger cannot read private coordinates');
+select pg_temp.verify((select metadata->>'role'='Developer' from public.sparknew_profile_details where owner_id=current_setting('test.owner')::uuid and kind='work'),'Public structured work entry remains readable');
+update public.sparknew_profile_details set metadata='{"role":"Tampered"}' where owner_id=current_setting('test.owner')::uuid;
+select pg_temp.verify((select metadata->>'role'='Developer' from public.sparknew_profile_details where owner_id=current_setting('test.owner')::uuid and kind='work'),'Stranger cannot edit structured work');
+select pg_temp.reject(format('insert into public.sparknew_profile_details(owner_id,kind,title,metadata) values(%L,''city'',''forged'',''{"latitude":24,"longitude":90}'')',current_setting('test.owner')),'Cannot insert location on behalf of another user');
+reset role;
+select count(*) as checks_passed,bool_and(passed) as all_passed from spark_picker_checks;
+rollback;

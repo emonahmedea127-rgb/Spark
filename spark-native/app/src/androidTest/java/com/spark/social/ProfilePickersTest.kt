@@ -1,6 +1,10 @@
 package com.spark.social
 import androidx.activity.compose.setContent
 import androidx.compose.ui.test.*
+import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.test.platform.app.InstrumentationRegistry
+import android.os.ParcelFileDescriptor
+import java.io.File
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.json.JSONObject
@@ -12,14 +16,24 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class ProfilePickersTest {
  @get:Rule val rule=createAndroidComposeRule<MainActivity>()
+ private fun capture(name:String) {
+  rule.waitForIdle()
+  val bitmap=InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
+  val file=File(rule.activity.getExternalFilesDir(null),name)
+  file.outputStream().use{bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG,100,it)}
+  val fd=InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand("cp ${file.absolutePath} /data/local/tmp/$name")
+  ParcelFileDescriptor.AutoCloseInputStream(fd).use{it.readBytes()}
+ }
  @Test fun categoryUsesChoicesAndPreservesPrivateAudience() {
   var saved:List<Any>?=null
   val field=profileSections.flatMap{it.fields}.first{it.kind=="category"}
   rule.runOnUiThread{rule.activity.setContent{SparkTheme(false){ProfileDetailDialog(field,json("id" to "entry","title" to "Artist","visibility" to "private","metadata" to JSONObject()),{}, {title,_,audience,_,_->saved=listOf(title,audience)})}}}
   rule.onAllNodes(hasSetTextAction()).assertCountEquals(0)
   rule.onNodeWithText("Artist").performClick()
+  capture("spark-category-choices-v1.6.png")
   rule.onNodeWithTag("choice:Digital creator").performClick()
   rule.onNodeWithText("Digital creator").assertIsDisplayed()
+  capture("spark-category-editor-v1.6.png")
   rule.onNodeWithText("Save").performClick()
   rule.runOnIdle{assertEquals(listOf("Digital creator","private"),saved)}
  }

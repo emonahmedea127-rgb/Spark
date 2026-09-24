@@ -4,7 +4,7 @@ package com.spark.social
 import android.content.Context
 import android.location.Geocoder
 import androidx.compose.foundation.*
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.*
@@ -21,6 +21,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
@@ -69,7 +70,7 @@ suspend fun nameMapPin(context:Context,lat:Double,lon:Double):String = withConte
  listOfNotNull(a.locality?:a.subAdminArea,a.adminArea,a.countryName).distinct().joinToString(", ").take(160)
 }
 @Composable fun LocationPicker(initial:MapPlace?,onClose:()->Unit,onPick:(MapPlace)->Unit,search:(suspend(String)->List<MapPlace>)? = null,resolve:(suspend(Double,Double)->String)? = null,loadTiles:Boolean=true) {
- val context=LocalContext.current;val scope=rememberCoroutineScope()
+ val context=LocalContext.current;val scope=rememberCoroutineScope();val keyboard=LocalSoftwareKeyboardController.current
  var lat by rememberSaveable{mutableDoubleStateOf(initial?.latitude?:23.8103)}
  var lon by rememberSaveable{mutableDoubleStateOf(initial?.longitude?:90.4125)}
  var zoom by rememberSaveable{mutableIntStateOf(11)}
@@ -92,13 +93,13 @@ suspend fun nameMapPin(context:Context,lat:Double,lon:Double):String = withConte
    }
   }) {padding->Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).imePadding()) {
    Row(Modifier.padding(horizontal=12.dp),verticalAlignment=Alignment.CenterVertically){OutlinedTextField(query,{query=it},label={Text("Search city or place")},singleLine=true,modifier=Modifier.weight(1f),enabled=!busy)
-    IconButton(enabled=query.trim().length>=2&&!busy,onClick={val token=++generation;scope.launch{busy=true;error=null;try{
+    IconButton(enabled=query.trim().length>=2&&!busy,onClick={keyboard?.hide();val token=++generation;scope.launch{busy=true;error=null;try{
      results=withTimeout(12000){search?.invoke(query)?:searchMapPlaces(context,query)}
      if(results.isEmpty())error="No places found. Try a nearby city or choose on the map."
     }catch(e:TimeoutCancellationException){error="Search timed out. Retry or choose on the map."}catch(e:CancellationException){throw e}catch(e:Exception){error=e.message?:"Couldn't search. Choose on the map."}finally{if(token==generation)busy=false}}}){Icon(Icons.Outlined.Search,"Search places")}}
    if(busy)LinearProgressIndicator(Modifier.fillMaxWidth())
    error?.let{Text(it,Modifier.padding(12.dp),color=MaterialTheme.colorScheme.error)}
-   if(results.isNotEmpty())LazyColumn(Modifier.heightIn(max=180.dp)) {items(results){place->ListItem(headlineContent={Text(place.name)},leadingContent={Icon(Icons.Outlined.Place,null)},modifier=Modifier.clickable{lat=place.latitude;lon=place.longitude;label=place.name;moved=true;results=emptyList();zoom=12})}}
+   if(results.isNotEmpty())LazyColumn(Modifier.heightIn(max=180.dp)) {items(results){place->ListItem(headlineContent={Text(place.name)},leadingContent={Icon(Icons.Outlined.Place,null)},modifier=Modifier.clickable{keyboard?.hide();lat=place.latitude;lon=place.longitude;label=place.name;moved=true;results=emptyList();zoom=12})}}
    SlippyMap(lat,lon,zoom,{p->lat=p.latitude;lon=p.longitude;label="";moved=true},onZoom={zoom=it},modifier=Modifier.weight(1f).fillMaxWidth().padding(top=10.dp),loadTiles=loadTiles,enabled=!busy)
   }}}
  }
@@ -108,8 +109,9 @@ suspend fun nameMapPin(context:Context,lat:Double,lon:Double):String = withConte
  var tileError by remember {mutableStateOf(false)}
  var retry by remember {mutableIntStateOf(0)}
  val currentMove by rememberUpdatedState(onMove)
+ val currentZoom by rememberUpdatedState(onZoom)
  val center by rememberUpdatedState(mapWorld(latitude,longitude,zoom))
- BoxWithConstraints(modifier.background(MaterialTheme.colorScheme.surfaceVariant).clipToBounds().testTag("location-map").pointerInput(zoom,enabled){if(enabled)detectDragGestures{change,drag->change.consume();currentMove(worldPlace(center.first-drag.x/density.density,center.second-drag.y/density.density,zoom))}}.pointerInput(zoom,enabled){if(enabled)detectTapGestures{tap->currentMove(worldPlace(center.first+(tap.x-size.width/2)/density.density,center.second+(tap.y-size.height/2)/density.density,zoom))}}) {
+ BoxWithConstraints(modifier.background(MaterialTheme.colorScheme.surfaceVariant).clipToBounds().testTag("location-map").pointerInput(zoom,enabled){if(enabled){var scale=1f;detectTransformGestures{_,pan,factor,_->currentMove(worldPlace(center.first-pan.x/density.density,center.second-pan.y/density.density,zoom));scale*=factor;if(scale>1.45f&&zoom<18){currentZoom(zoom+1);scale=1f}else if(scale<.69f&&zoom>2){currentZoom(zoom-1);scale=1f}}}}.pointerInput(zoom,enabled){if(enabled)detectTapGestures{tap->currentMove(worldPlace(center.first+(tap.x-size.width/2)/density.density,center.second+(tap.y-size.height/2)/density.density,zoom))}}) {
   val width=maxWidth.value.toDouble();val height=maxHeight.value.toDouble();val originX=center.first-width/2;val originY=center.second-height/2
   val count=1 shl zoom
   if(loadTiles)for(x in floor(originX/256).toInt()..floor((originX+width)/256).toInt())for(y in floor(originY/256).toInt()..floor((originY+height)/256).toInt())if(y in 0 until count)key(zoom,x,y){
