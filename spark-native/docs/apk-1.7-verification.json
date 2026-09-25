@@ -1,0 +1,16 @@
+{
+  "bytes": 22019927,
+  "sha256": "88dc6b8958af314a6c250c5750aa767e2dfc06d158225163070cb99244d02f10",
+  "signer_certificate_sha256": "e9fdc8807f4a53342b345600971dfc873907f420959ac3425fa5c30665fe35d8",
+  "manifest": {
+    "versionCode": 8,
+    "versionName": "1.7.0",
+    "compileSdkVersion": 35,
+    "compileSdkVersionCodename": "15",
+    "package": "com.spark.social",
+    "platformBuildVersionCode": 35,
+    "platformBuildVersionName": 15
+  },
+  "build_commit": "6e662fba867cd9e399e3e4e5a16733d0746eb5c0",
+  "workflow_run": 36151629940
+}

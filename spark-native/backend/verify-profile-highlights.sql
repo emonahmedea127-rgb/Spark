@@ -1,0 +1,34 @@
+begin;
+create temp table spark_highlight_checks(name text,passed boolean);
+grant select,insert on spark_highlight_checks to authenticated;
+create function pg_temp.verify(ok boolean,label text) returns void language plpgsql as $$begin
+ if ok is not true then raise exception 'FAILED: %',label;end if;
+ insert into spark_highlight_checks values(label,true);
+end;$$;
+select set_config('test.a',gen_random_uuid()::text,true),set_config('test.b',gen_random_uuid()::text,true),set_config('test.c',gen_random_uuid()::text,true);
+insert into auth.users(id,email,raw_user_meta_data) select current_setting('test.'||who)::uuid,'spark-connections-'||current_setting('test.'||who)||'@example.invalid','{}'::jsonb from unnest(array['a','b','c'])who;
+insert into public.sparknew_profiles(id,display_name) select current_setting('test.'||who)::uuid,who from unnest(array['a','b','c'])who;
+set local role authenticated;
+create function pg_temp.deny(statement text,label text) returns void language plpgsql as $$begin
+ begin execute statement;exception when insufficient_privilege or check_violation then perform pg_temp.verify(true,label);return;end;
+ raise exception 'Unexpected permission: %',label;
+end;$$;
+select set_config('request.jwt.claims',json_build_object('sub',current_setting('test.a'),'role','authenticated')::text,true);
+insert into public.sparknew_posts(author_id,body,media_type,media_path,visibility) values(current_setting('test.a')::uuid,'public photo','image',current_setting('test.a')||'/public.jpg','public'),(current_setting('test.a')::uuid,'private photo','image',current_setting('test.a')||'/private.jpg','private');
+insert into public.sparknew_profile_highlights(owner_id,post_id,title) select current_setting('test.a')::uuid,id,body from public.sparknew_posts where author_id=current_setting('test.a')::uuid;
+select pg_temp.verify((select count(*)=2 from public.sparknew_profile_highlights where owner_id=current_setting('test.a')::uuid),'Owner can highlight own photos');
+select pg_temp.verify((select posts=2 from public.sparknew_profile_counts(current_setting('test.a')::uuid)),'Owner counts private and public posts');
+select set_config('request.jwt.claims',json_build_object('sub',current_setting('test.b'),'role','authenticated')::text,true);
+select pg_temp.verify((select count(*)=1 from public.sparknew_profile_highlights where owner_id=current_setting('test.a')::uuid),'Stranger sees only public highlight');
+select pg_temp.verify((select posts=1 from public.sparknew_profile_counts(current_setting('test.a')::uuid)),'Visitor post count follows audience');
+select pg_temp.deny(format('insert into public.sparknew_profile_highlights(owner_id,post_id,title) values(%L,%L,''stolen'')',current_setting('test.b')::uuid,(select id from public.sparknew_posts where author_id=current_setting('test.a')::uuid limit 1)),'Cannot highlight another persons post');
+delete from public.sparknew_profile_highlights where owner_id=current_setting('test.a')::uuid;
+select pg_temp.verify((select count(*)=1 from public.sparknew_profile_highlights where owner_id=current_setting('test.a')::uuid),'Visitor cannot delete highlight');
+insert into public.sparknew_blocks(owner_id,target_id) values(current_setting('test.b')::uuid,current_setting('test.a')::uuid);
+select pg_temp.verify((select count(*)=0 from public.sparknew_profile_highlights where owner_id=current_setting('test.a')::uuid),'Block hides highlights');
+select set_config('request.jwt.claims',json_build_object('sub',current_setting('test.a'),'role','authenticated')::text,true);
+delete from public.sparknew_profile_highlights where owner_id=current_setting('test.a')::uuid and title='private photo';
+select pg_temp.verify((select count(*)=2 from public.sparknew_posts where author_id=current_setting('test.a')::uuid),'Removing highlight preserves original post');
+delete from public.sparknew_posts where author_id=current_setting('test.a')::uuid and body='public photo';
+select pg_temp.verify((select count(*)=0 from public.sparknew_profile_highlights where owner_id=current_setting('test.a')::uuid),'Deleting source post removes highlight');
+reset role;select * from spark_highlight_checks;rollback;
