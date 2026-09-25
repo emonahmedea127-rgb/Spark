@@ -56,7 +56,7 @@ import org.json.JSONObject
         try{
             administrator=vm.api.rows("badge_admins","select=user_id&user_id=eq.${vm.api.userId}").isNotEmpty()
             myRequest=vm.api.rows("badge_requests","requester_id=eq.${vm.api.userId}&order=created_at.desc&limit=1").firstOrNull()
-            requests=if(administrator)vm.api.rows("badge_requests","status=eq.pending&order=created_at.asc&limit=100") else emptyList()
+            requests=if(administrator)vm.api.rows("badge_requests","select=*,requester:sparknew_profiles!requester_id(display_name,avatar_path)&status=eq.pending&order=created_at.asc&limit=100") else emptyList()
         }catch(e:CancellationException){throw e}catch(e:Exception){error=e.message}
         finally{loading=false}
     }
@@ -88,7 +88,8 @@ import org.json.JSONObject
             item{Text("Pending requests",fontSize=20.sp,fontWeight=FontWeight.Bold)}
             items(requests,key={it.id()}){request->
                 OutlinedCard{Column(Modifier.fillMaxWidth().padding(14.dp)){
-                    Text("Account: ${request.s("requester_id")}",fontWeight=FontWeight.Bold)
+                    Text(request.child("requester").s("display_name").ifBlank{"Spark member"},fontWeight=FontWeight.Bold)
+                    Text("Account ID: ${request.s("requester_id")}",color=MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(request.s("reason"))
                     Row{
                         TextButton(enabled=vm.tasks==0,onClick={vm.work{
