@@ -15,7 +15,7 @@ end; $$;
 select set_config('spark.test.alice',gen_random_uuid()::text,true),set_config('spark.test.bob',gen_random_uuid()::text,true),set_config('spark.test.carol',gen_random_uuid()::text,true);
 insert into auth.users(id,email,raw_user_meta_data) select current_setting('spark.test.'||who)::uuid,'spark-test-'||current_setting('spark.test.'||who)||'@example.invalid','{}'::jsonb from unnest(array['alice','bob','carol']) who;
 insert into public.sparknew_profiles(id,display_name) select current_setting('spark.test.'||who)::uuid,who from unnest(array['alice','bob','carol']) who;
-select pg_temp.check_true((select count(*)=21 and bool_and(relrowsecurity) from pg_class where relnamespace='public'::regnamespace and relname like 'sparknew_%' and relkind='r'),'RLS enabled on all 21 Spark tables');
+select pg_temp.check_true((select count(*)=22 and bool_and(relrowsecurity) from pg_class where relnamespace='public'::regnamespace and relname like 'sparknew_%' and relkind='r'),'RLS enabled on all 22 Spark tables');
 select pg_temp.check_true((select not public from storage.buckets where id='spark-media-v1'),'Media bucket is private');
 set local role authenticated;
 select set_config('request.jwt.claims',json_build_object('sub',current_setting('spark.test.alice'),'role','authenticated')::text,true);
