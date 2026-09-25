@@ -25,7 +25,6 @@ create function public.sparknew_content_analytics(days_back integer default 28) 
  with window_posts as (
   select p.id,p.kind,p.body,p.created_at from public.sparknew_posts p
   where p.author_id=auth.uid() and p.kind in ('post','reel')
-   and p.created_at>=now()-make_interval(days=>least(greatest(days_back,1),28))
  ),
  metrics as (
   select p.id,p.kind,p.body,p.created_at,
@@ -36,8 +35,11 @@ create function public.sparknew_content_analytics(days_back integer default 28) 
  )
  select jsonb_build_object(
   'summary',jsonb_build_object(
-   'views',coalesce(sum(views),0),'engagement',coalesce(sum(reactions+comments),0),
-   'content_count',count(*),
+   'views',coalesce(sum(views),0),
+   'engagement',coalesce(sum(reactions+comments) filter
+    (where created_at>=now()-make_interval(days=>least(greatest(days_back,1),28))),0),
+   'content_count',count(*) filter
+    (where created_at>=now()-make_interval(days=>least(greatest(days_back,1),28))),
    'followers',(select count(*) from public.sparknew_follows f where f.following_id=auth.uid())),
   'content',coalesce(jsonb_agg(to_jsonb(metrics) order by created_at desc),'[]'::jsonb))
  from metrics;
