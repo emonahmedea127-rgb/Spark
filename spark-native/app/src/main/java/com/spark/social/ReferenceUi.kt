@@ -155,6 +155,13 @@ import kotlinx.coroutines.launch
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         if(videos.isNotEmpty()) {
             val pager=rememberPagerState(pageCount={videos.size})
+            LaunchedEffect(pager.currentPage,videos) {
+                videos.getOrNull(pager.currentPage)?.let { post ->
+                    if(post.s("author_id")!=vm.api.userId)runCatching {
+                        vm.api.request("/rest/v1/rpc/sparknew_record_view","POST",json("content_id" to post.id()))
+                    }
+                }
+            }
             LaunchedEffect(pager.currentPage,videos.size) { if(pager.currentPage>=videos.lastIndex-2&&more&&feed.error==null)feed.load() }
             VerticalPager(state=pager,key={videos[it].id()},modifier=Modifier.fillMaxSize()) { index ->
                 val post=videos[index]

@@ -173,6 +173,7 @@ class MainActivity:ComponentActivity() {
                     "Edit profile"->EditProfileScreen(vm)
                     "Connections"->ProfileConnectionsScreen(vm,vm.page.id,vm.page.title)
                     "Dashboard"->ProfileDashboard(vm)
+                    "Badge requests"->BadgeRequestsScreen(vm)
                     "About"->ProfileAboutScreen(vm,vm.page.id)
                     "Suggestions"->PeopleSuggestions(vm,fullPage=true)
                     "Search"->SearchScreen(vm)
@@ -435,6 +436,11 @@ fun ago(raw:String):String=runCatching {
     NewPostScreen(vm,kind,community,onClose)
 }
 @Composable fun PostCard(vm:SparkViewModel,post:JSONObject) {
+    LaunchedEffect(post.id()) {
+        if(post.s("author_id")!=vm.api.userId)runCatching {
+            vm.api.request("/rest/v1/rpc/sparknew_record_view","POST",json("content_id" to post.id()))
+        }
+    }
     var menu by remember {
         mutableStateOf(false)
     }
@@ -459,9 +465,7 @@ fun ago(raw:String):String=runCatching {
                 Column(Modifier.weight(1f).padding(start=10.dp).clickable {
                     vm.go("Profile",post.s("author_id"))
                 }) {
-                    Text(author.s("display_name").ifBlank {
-                        "Spark member"
-                    },fontWeight=FontWeight.Bold)
+                    VerifiedName(vm,author)
                     Text("${ago(post.s("created_at"))} · ${post.s("visibility")}",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Box {
@@ -820,7 +824,6 @@ fun ago(raw:String):String=runCatching {
                                 Text("All posts",fontSize=21.sp,fontWeight=FontWeight.Bold)
                                 if(own) {
                                     Row(Modifier.fillMaxWidth().clickable{createPost=true}.padding(vertical=10.dp),verticalAlignment=Alignment.CenterVertically){Avatar(vm,p,42);Text("What's on your mind?",Modifier.weight(1f).padding(horizontal=12.dp));Icon(Icons.Outlined.Image,"Create photo post",tint=Blue)}
-                                    FilledTonalButton(onClick={vm.go("Edit profile")},modifier=Modifier.fillMaxWidth(),shape=RoundedCornerShape(8.dp)){Icon(Icons.Outlined.Edit,null,Modifier.size(18.dp));Text(" Edit profile")}
                                 }
                             }
                         }
@@ -1006,7 +1009,7 @@ fun ago(raw:String):String=runCatching {
                     throw e
                 }catch(_:Exception) {
                 }
-                delay(7000)
+                delay(2500)
             }
         }
     }

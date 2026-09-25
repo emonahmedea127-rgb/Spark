@@ -1,5 +1,6 @@
 'use strict';
 const pending = new Map(); let serial = 0, stream, pc, stopped = false, config, after = 0, remoteSet = false, booted = false, everConnected = false, disconnectedAt = 0;
+const queuedIce = [];
 const statusEl = document.getElementById('status');
 function request(command, data = {}) {
   return new Promise((resolve, reject) => {
@@ -24,6 +25,7 @@ window.boot = async value => {
     stream.getTracks().forEach(track => pc.addTrack(track, stream));
     pc.ontrack = event => {
       const incoming = event.streams[0] || new MediaStream([event.track]);
+      // The video element is muted; only the audio element plays remote sound.
       document.getElementById('remote').srcObject = incoming;
       const remoteAudio = document.getElementById('remoteAudio');
       remoteAudio.srcObject = incoming; remoteAudio.muted = false; remoteAudio.volume = 1;
@@ -45,7 +47,8 @@ window.boot = async value => {
         if (!config.caller && call.offer) { await pc.setRemoteDescription(call.offer); const answer = await pc.createAnswer(); await pc.setLocalDescription(answer); await request('answer', { type: answer.type, sdp: answer.sdp }); remoteSet = true; statusEl.textContent = 'Connecting…'; }
         else if (config.caller && call.answer) { await pc.setRemoteDescription(call.answer); remoteSet = true; statusEl.textContent = 'Connecting…'; }
       }
-      if (remoteSet) for (const item of result.ice) { await pc.addIceCandidate(item.candidate); after = Math.max(after, item.id); }
+      for (const item of result.ice) { queuedIce.push(item.candidate); after = Math.max(after, item.id); }
+      if (remoteSet) while (queuedIce.length) await pc.addIceCandidate(queuedIce.shift());
       if ((!everConnected && Date.now() - started > 90000) || (disconnectedAt && Date.now() - disconnectedAt > 20000)) { await hangup(); break; }
       await new Promise(resolve => setTimeout(resolve, 1200));
     }
