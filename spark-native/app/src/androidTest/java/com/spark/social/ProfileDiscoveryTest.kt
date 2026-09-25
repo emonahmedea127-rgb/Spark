@@ -27,7 +27,7 @@ class ProfileDiscoveryTest {
     @Test fun editorSectionsOpenCorrectFieldAndCamera() {
         var selected="";var photo=""
         rule.runOnUiThread {val vm=SparkViewModel(rule.activity.application);rule.activity.setContent {SparkTheme(false) {
-            ProfileEditorContent(vm,json("display_name" to "Spark Tester","bio" to "Hello"),emptyList(),{photo=it},{},{field,_->selected=field.kind})
+            ProfileEditorContent(vm,json("display_name" to "Spark Tester","bio" to "Hello"),emptyList(),{photo=it},{},{},{field,_->selected=field.kind})
         }}}
         capture("spark-editor-v1.5.png")
         rule.onNodeWithContentDescription("Change cover photo").performClick()

@@ -10,8 +10,8 @@ android {
         applicationId = "com.spark.social"
         minSdk = 26
         targetSdk = 35
-        versionCode = 7
-        versionName = "1.6.0"
+        versionCode = 8
+        versionName = "1.7.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     // CI restores this key before Gradle starts. Local developers keep the default debug key.

@@ -170,6 +170,8 @@ class MainActivity:ComponentActivity() {
                     "Profile"->ProfileScreen(vm,vm.page.id)
                     "Profile settings"->ProfileSettingsScreen(vm)
                     "Edit profile"->EditProfileScreen(vm)
+                    "Connections"->ProfileConnectionsScreen(vm,vm.page.id,vm.page.title)
+                    "Dashboard"->ProfileDashboard(vm)
                     "About"->ProfileAboutScreen(vm,vm.page.id)
                     "Suggestions"->PeopleSuggestions(vm,fullPage=true)
                     "Search"->SearchScreen(vm)
@@ -720,7 +722,12 @@ fun ago(raw:String):String=runCatching {
     }
 }
 @Composable fun ProfileScreen(vm:SparkViewModel,id:String) {
+    val listState=androidx.compose.foundation.lazy.rememberLazyListState()
+    val profileScope=rememberCoroutineScope()
+    var createPost by remember { mutableStateOf(false) }
+    if(createPost)ComposeDialog(vm,"post"){createPost=false}
     var profileFilter by remember { mutableStateOf("All") }
+    var postLimit by remember(id) { mutableIntStateOf(40) }
     var newStory by remember { mutableStateOf(false) }
     if(newStory)ComposeDialog(vm,"story") { newStory=false }
     var previewPhoto by remember { mutableStateOf("") }
@@ -743,93 +750,29 @@ fun ago(raw:String):String=runCatching {
     }) {
         rows->val p=rows.firstOrNull()
         if(p==null)Empty("Profile unavailable","This profile is unavailable or blocked.")else {
-            Rows(vm,"profileposts:$id", {
-                vm.api.rows("posts","${vm.api.postSelect}&author_id=eq.$id&kind=in.(post,reel)&order=created_at.desc&limit=40")
+            Rows(vm,"profileposts:$id:$postLimit", {
+                vm.api.rows("posts","${vm.api.postSelect}&author_id=eq.$id&kind=in.(post,reel)&order=created_at.desc,id.desc&limit=$postLimit")
             }) {
-                posts->LazyColumn(verticalArrangement=Arrangement.spacedBy(8.dp)) {
-                    item {
-                        Surface {
-                            Column {
-                                Box(Modifier.fillMaxWidth().aspectRatio(16f/9f).background(Color(0xFFBBCBD8)).clickable {
-                                    if(p.s("cover_path").isNotBlank())previewPhoto=p.s("cover_path")
-                                    else if(own) { photoField="cover_path";pick.launch("image/*") }
-                                }) {
-                                    if(p.s("cover_path").isNotBlank())PrivateImage(vm,p.s("cover_path"),Modifier.fillMaxSize())else Text("Make room for good moments.",Modifier.align(Alignment.Center).padding(24.dp),color=Color.White,fontSize=24.sp,fontWeight=FontWeight.Bold)
-                                    Row(Modifier.fillMaxWidth().align(Alignment.TopCenter).background(Brush.verticalGradient(listOf(Color.Black.copy(alpha=.35f),Color.Transparent))),verticalAlignment=Alignment.CenterVertically) {
-                                        IconButton(onClick={if(vm.stack.size>1)vm.back() else vm.go("Menu")}) { Icon(if(vm.stack.size>1)Icons.AutoMirrored.Outlined.ArrowBack else Icons.Outlined.Menu,"Back or menu",tint=Color.White) }
-                                        Spacer(Modifier.weight(1f))
-                                        IconButton(onClick={vm.go("Search")}) { Icon(Icons.Outlined.Search,"Search",tint=Color.White) }
-                                        if(own)IconButton(onClick={vm.go("Profile settings")}) { Icon(Icons.Outlined.MoreHoriz,"Profile settings",tint=Color.White) }
-                                    }
-                                    if(own)IconButton(onClick={photoField="cover_path";pick.launch("image/*")},modifier=Modifier.align(Alignment.BottomEnd).padding(10.dp).background(Color.Black.copy(alpha=.4f),CircleShape)) { Icon(Icons.Outlined.PhotoCamera,"Change cover",tint=Color.White) }
-                                }
-                                Column(Modifier.fillMaxWidth().padding(horizontal=16.dp),horizontalAlignment=Alignment.CenterHorizontally) {
-                                    Box(Modifier.offset(y=(-48).dp).border(5.dp,MaterialTheme.colorScheme.surface,CircleShape).padding(5.dp)) {
-                                    Avatar(vm,p,146) {
-                                        if(p.s("avatar_path").isNotBlank())previewPhoto=p.s("avatar_path")
-                                        else if(own) {
-                                            photoField="avatar_path"
-                                            pick.launch("image/*")
-                                        }
-                                    }
-                                    if(own)IconButton(onClick={photoField="avatar_path";pick.launch("image/*")},modifier=Modifier.align(Alignment.BottomEnd).background(MaterialTheme.colorScheme.surfaceVariant,CircleShape)) { Icon(Icons.Outlined.PhotoCamera,"Change profile photo") }
-                                    }
-                                    Text(p.s("display_name"),modifier=Modifier.offset(y=(-26).dp),fontSize=28.sp,fontWeight=FontWeight.Bold)
-                                    if(p.s("bio").isNotBlank())Text(p.s("bio"),Modifier.padding(vertical=8.dp))
-                                    Rows(vm,"profilefollows:$id", {
-                                        vm.api.rows("follows","or=(follower_id.eq.$id,following_id.eq.$id)")
-                                    }) {
-                                        follows->Text("${follows.count{it.s("following_id")==id}} followers · ${follows.count{it.s("follower_id")==id}} following",fontSize=14.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
-                                        if(!own) {
-                                            val following=follows.any {
-                                                it.s("follower_id")==vm.api.userId&&it.s("following_id")==id
-                                            }
-                                            TextButton(onClick= {
-                                                vm.work {
-                                                    if(following)vm.api.delete("follows","follower_id=eq.${vm.api.userId}&following_id=eq.$id")else vm.api.insert("follows",json("follower_id" to vm.api.userId,"following_id" to id))
-                                                    vm.refresh()
-                                                }
-                                            }) {
-                                                Text(if(following)"Unfollow" else "Follow")
-                                            }
-                                        }
-                                    }
-                                    if(own)Row(Modifier.fillMaxWidth().padding(vertical=16.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                                        Button(onClick={vm.go("Edit profile")},modifier=Modifier.weight(1f),shape=RoundedCornerShape(8.dp)) { Icon(Icons.Outlined.Edit,null,Modifier.size(18.dp));Text(" Edit profile") }
-                                        FilledTonalButton(onClick={newStory=true},modifier=Modifier.weight(1f),shape=RoundedCornerShape(8.dp)) { Icon(Icons.Outlined.AddCircleOutline,null,Modifier.size(18.dp));Text(" Add to story") }
-                                    }else {
-                                        Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                                            Button(onClick= {
-                                                vm.work {
-                                                    val c=vm.api.conversation(id)
-                                                    vm.go("Chat",c.id(),p.s("display_name"))
-                                                }
-                                            }) {
-                                                Text("Message")
-                                            }
-                                            OutlinedButton(onClick= {
-                                                block=true
-                                            }) {
-                                                Text("Block")
-                                            }
-                                            TextButton(onClick= {
-                                                report=true
-                                            }) {
-                                                Text("Report")
-                                            }
-                                        }
-                                    }
-                                }
-                            }
+                posts->LazyColumn(state=listState,verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                    item(key="hero") {
+                        Rows(vm,"profile-summary:$id",{
+                            val counts=vm.api.profileCounts(id).firstOrNull()?:JSONObject()
+                            val category=vm.api.rows("profile_details","owner_id=eq.$id&kind=eq.category&order=created_at.asc&limit=1").firstOrNull()?.s("title").orEmpty()
+                            listOf(counts.put("category",category))
+                        }) {summary->
+                            val counts=summary.firstOrNull()?:JSONObject()
+                            ProfileHero(vm,p,own,counts.s("category"),counts,onPhoto={field->
+                                if(p.s(field).isNotBlank())previewPhoto=p.s(field)
+                                else if(own){photoField=field;pick.launch("image/*")}
+                            },onChangePhoto={field->photoField=field;pick.launch("image/*")},onStory={newStory=true},onPosts={profileFilter="All";profileScope.launch{withFrameNanos{};listState.animateScrollToItem(if(own)5 else 7)}})
                         }
                     }
-                    item { ProfileAbout(vm,id) }
                     if(!own)item {
                         Rows(vm,"relationship:$id", {
                             vm.api.rows("friendships","or=(and(sender_id.eq.${vm.api.userId},receiver_id.eq.$id),and(sender_id.eq.$id,receiver_id.eq.${vm.api.userId}))")
                         }) {
                             fs->val f=fs.firstOrNull()
-                            Row(Modifier.padding(horizontal=16.dp)) {
+                            Row(Modifier.fillMaxWidth().padding(horizontal=16.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                                 Button(enabled=vm.tasks==0,onClick= {
                                     vm.work {
                                         if(f==null)vm.api.insert("friendships",json("sender_id" to vm.api.userId,"receiver_id" to id))else if(f.s("status")=="pending"&&f.s("receiver_id")==vm.api.userId)vm.api.update("friendships","id=eq.${f.id()}",json("status" to "accepted"))else vm.api.delete("friendships","id=eq.${f.id()}")
@@ -844,6 +787,20 @@ fun ago(raw:String):String=runCatching {
                                     })
                                 }
                             }
+                            if(f==null)Rows(vm,"manual-follow:$id",{vm.api.rows("follows","follower_id=eq.${vm.api.userId}&following_id=eq.$id")}) {existing->
+                                TextButton(enabled=vm.tasks==0,onClick={vm.work{
+                                    if(existing.isEmpty())vm.api.insert("follows",json("follower_id" to vm.api.userId,"following_id" to id)) else vm.api.delete("follows","follower_id=eq.${vm.api.userId}&following_id=eq.$id")
+                                    vm.refresh()
+                                }},modifier=Modifier.padding(horizontal=16.dp)){Text(if(existing.isEmpty())"Follow" else "Unfollow")}
+                            }
+
+                        }
+                    }
+                    if(!own)item {
+                        Row(Modifier.fillMaxWidth().padding(horizontal=16.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                            Button(onClick={vm.work{val c=vm.api.conversation(id);vm.go("Chat",c.id(),p.s("display_name"))}},modifier=Modifier.weight(1f)){Text("Message")}
+                            TextButton(onClick={block=true}){Text("Block")}
+                            TextButton(onClick={report=true}){Text("Report")}
                         }
                     }
                     item {
@@ -852,11 +809,26 @@ fun ago(raw:String):String=runCatching {
                             if(own)TextButton(onClick={vm.go("Profile settings")}) { Text("More") }
                         }
                     }
+                    if(profileFilter=="All") {
+                        item(key="about"){ProfileAbout(vm,id)}
+                        item(key="friends"){ProfileFriends(vm,id)}
+                        item(key="highlights"){ProfileHighlights(vm,id,posts)}
+                        item(key="composer") {
+                            Column(Modifier.fillMaxWidth().padding(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+                                Text("All posts",fontSize=21.sp,fontWeight=FontWeight.Bold)
+                                if(own) {
+                                    Row(Modifier.fillMaxWidth().clickable{createPost=true}.padding(vertical=10.dp),verticalAlignment=Alignment.CenterVertically){Avatar(vm,p,42);Text("What's on your mind?",Modifier.weight(1f).padding(horizontal=12.dp));Icon(Icons.Outlined.Image,"Create photo post",tint=Blue)}
+                                    FilledTonalButton(onClick={vm.go("Edit profile")},modifier=Modifier.fillMaxWidth(),shape=RoundedCornerShape(8.dp)){Icon(Icons.Outlined.Edit,null,Modifier.size(18.dp));Text(" Edit profile")}
+                                }
+                            }
+                        }
+                    }
                     items(posts.filter { profileFilter=="All" || (profileFilter=="Reels"&&it.s("media_type")=="video") || (profileFilter=="Photos"&&it.s("media_type")=="image") },key= {
                         it.id()
                     }) {
                         PostCard(vm,it)
                     }
+                    if(posts.size==postLimit)item {TextButton(onClick={postLimit+=40},modifier=Modifier.fillMaxWidth()){Text("Load more posts")}}
                     if(posts.isEmpty())item {
                         Empty("No posts to show","New posts will appear here.")
                     }

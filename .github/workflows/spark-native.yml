@@ -69,6 +69,8 @@ jobs:
             adb pull /data/local/tmp/spark-suggestions-v1.5.png app/build/reports/spark-suggestions-v1.5.png
             adb pull /data/local/tmp/spark-category-choices-v1.6.png app/build/reports/spark-category-choices-v1.6.png
             adb pull /data/local/tmp/spark-category-editor-v1.6.png app/build/reports/spark-category-editor-v1.6.png
+            adb pull /data/local/tmp/spark-profile-v1.7.png app/build/reports/spark-profile-v1.7.png
+            adb pull /data/local/tmp/spark-bio-editor-v1.7.png app/build/reports/spark-bio-editor-v1.7.png
       - uses: actions/upload-artifact@v4
         if: always()
         with:

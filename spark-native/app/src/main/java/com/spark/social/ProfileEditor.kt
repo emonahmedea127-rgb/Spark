@@ -50,20 +50,18 @@ fun audienceLabel(value:String)=when(value){"public"->"Public";"friends"->"Frien
 @Composable fun EditProfileScreen(vm:SparkViewModel) {
     var selected by remember {mutableStateOf<ProfileField?>(null)}
     var entry by remember {mutableStateOf<JSONObject?>(null)}
-    var basic by remember {mutableStateOf(false)}
+    var basic by remember {mutableStateOf<String?>(null)}
     var photoField by rememberSaveable {mutableStateOf("avatar_path")}
     var cropUri by remember {mutableStateOf<Uri?>(null)}
     val pick=rememberLauncherForActivityResult(ActivityResultContracts.GetContent()){cropUri=it}
     cropUri?.let {ProfilePhotoCropper(vm,it,photoField){cropUri=null}}
     Rows(vm,"profile-editor",{vm.api.rows("profile_details","owner_id=eq.${vm.api.userId}&order=created_at.asc,id.asc")}) {details->
-        ProfileEditorContent(vm,vm.me?:JSONObject(),details,onPhoto={photoField=it;pick.launch("image/*")},onBasic={basic=true},onEdit={field,row->selected=field;entry=row})
+        ProfileEditorContent(vm,vm.me?:JSONObject(),details,onPhoto={photoField=it;pick.launch("image/*")},onName={basic="display_name"},onBio={basic="bio"},onEdit={field,row->selected=field;entry=row})
     }
-    if(basic)TextForm("Name and bio",listOf("Name" to vm.me!!.s("display_name"),"Bio · Public" to vm.me!!.s("bio")),vm,{basic=false}) {values->
-        require(values[0].trim().length in 1..80){"Use a name between 1 and 80 characters."}
-        require(values[1].length<=400){"Keep your bio under 400 characters."}
-        vm.api.update("profiles","id=eq.${vm.api.userId}",json("display_name" to values[0].trim(),"bio" to values[1].trim()))
-        vm.me=vm.api.ensureProfile();vm.refresh();basic=false
-    }
+    basic?.let {field->IdentityEditor(field,vm.me?.s(field).orEmpty(),onClose={basic=null}) {value->
+        vm.api.update("profiles","id=eq.${vm.api.userId}",identityPatch(field,value))
+        vm.me=vm.api.ensureProfile();vm.refresh()
+    }}
     selected?.let {field->ProfileDetailDialog(field,entry,onClose={selected=null},onSave={title,detail,visibility,pinned,metadata->
         val body=json("title" to title,"detail" to detail,"visibility" to visibility,"pinned" to pinned,"metadata" to metadata)
         if(entry==null)vm.api.insert("profile_details",body.put("owner_id",vm.api.userId).put("kind",field.kind))
@@ -71,7 +69,7 @@ fun audienceLabel(value:String)=when(value){"public"->"Public";"friends"->"Frien
         vm.refresh()
     },onDelete=entry?.let {row->{vm.api.delete("profile_details","id=eq.${row.id()}");vm.refresh()}},api=vm.api)}
 }
-@Composable fun ProfileEditorContent(vm:SparkViewModel,profile:JSONObject,details:List<JSONObject>,onPhoto:(String)->Unit,onBasic:()->Unit,onEdit:(ProfileField,JSONObject?)->Unit) {
+@Composable fun ProfileEditorContent(vm:SparkViewModel,profile:JSONObject,details:List<JSONObject>,onPhoto:(String)->Unit,onName:()->Unit,onBio:()->Unit,onEdit:(ProfileField,JSONObject?)->Unit) {
     LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(bottom=32.dp)) {
         item {
             Box(Modifier.fillMaxWidth().height(310.dp)) {
@@ -90,8 +88,8 @@ fun audienceLabel(value:String)=when(value){"public"->"Public";"friends"->"Frien
         item {
             Column(Modifier.padding(horizontal=16.dp)) {
                 ProfileSectionHeading("Intro")
-                ProfileEditorRow(Icons.Outlined.PersonOutline,"Name",profile.s("display_name"),"public",onBasic)
-                ProfileEditorRow(Icons.Outlined.WavingHand,"Bio",profile.s("bio").ifBlank{"Introduce yourself"},"public",onBasic)
+                ProfileEditorRow(Icons.Outlined.PersonOutline,"Name",profile.s("display_name"),"public",onName)
+                ProfileEditorRow(Icons.Outlined.WavingHand,"Bio",profile.s("bio").ifBlank{"Introduce yourself"},"public",onBio)
                 Row(Modifier.fillMaxWidth().padding(vertical=14.dp),verticalAlignment=Alignment.Top) {
                     Icon(Icons.Outlined.PushPin,null,Modifier.size(26.dp));Column(Modifier.padding(start=16.dp)) {
                         Text("Pinned details",fontWeight=FontWeight.Bold,fontSize=17.sp)
@@ -136,13 +134,15 @@ fun audienceLabel(value:String)=when(value){"public"->"Public";"friends"->"Frien
 @Composable fun ProfileAbout(vm:SparkViewModel,id:String) {
     Rows(vm,"profile-about:$id",{vm.api.rows("profile_details","owner_id=eq.$id&order=pinned.desc,created_at.asc&limit=200")}) {details->
         if(details.isNotEmpty())Column(Modifier.fillMaxWidth().padding(16.dp)) {
-            Text("At a glance",fontSize=20.sp,fontWeight=FontWeight.Bold)
+            Row(verticalAlignment=Alignment.CenterVertically){Text("At a glance",Modifier.weight(1f),fontSize=21.sp,fontWeight=FontWeight.Bold);TextButton(onClick={vm.go("About",id)}){Text("See all")}}
             val pinned=details.filter{it.optBoolean("pinned")}
-            (if(pinned.isNotEmpty())pinned else details).take(5).forEach {row->
-                val field=profileSections.flatMap{it.fields}.firstOrNull{it.kind==row.s("kind")}
-                Row(Modifier.padding(top=14.dp),verticalAlignment=Alignment.CenterVertically){Icon(field?.icon?:Icons.Outlined.Info,null,Modifier.size(24.dp));Text(row.s("title"),Modifier.padding(start=12.dp))}
+            val visible=(if(pinned.isNotEmpty())pinned else details).filter{it.s("kind")!="category"}.groupBy{it.s("kind")}.entries.take(7)
+            visible.forEach { (kind,entries)->
+                val field=profileSections.flatMap{it.fields}.firstOrNull{it.kind==kind}
+                val prefix=when(kind){"city"->"Lives in ";"hometown"->"From ";"work"->"Works at ";"education"->"Studied at ";"birthday"->"Born ";"hobby"->"Enjoys ";else->""}
+                val title=prefix+entries.first().s("title")+if(entries.size>1)" and ${entries.size-1} more" else ""
+                Row(Modifier.fillMaxWidth().clickable{vm.go("About",id)}.padding(vertical=10.dp),verticalAlignment=Alignment.Top){Icon(field?.icon?:Icons.Outlined.Info,null,Modifier.size(25.dp));Text(title,Modifier.padding(start=14.dp),fontSize=16.sp)}
             }
-            TextButton(onClick={vm.go("About",id)}){Text("See all about info")}
         }
     }
 }
