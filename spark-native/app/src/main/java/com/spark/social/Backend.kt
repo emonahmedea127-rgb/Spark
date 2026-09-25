@@ -203,12 +203,13 @@ class SparkApi private constructor(private val context: Context) {
     suspend fun delete(table: String, filter: String) {
         request("/rest/v1/${Backend.PREFIX}$table?$filter", "DELETE")
     }
-    suspend fun upload(uri: Uri): Pair<String,String> = withContext(Dispatchers.IO) {
+    suspend fun upload(uri: Uri,once:Boolean=false): Pair<String,String> = withContext(Dispatchers.IO) {
         fresh()
         var mime = context.contentResolver.getType(uri) ?: "image/jpeg"
         require(mime in listOf("image/jpeg","image/png","image/webp","video/mp4","video/webm")) {
             "Choose a JPG, PNG, WebP, MP4 or WebM file."
         }
+        require(!once||mime.startsWith("image/")){"View once supports photos only."}
         var bytes = context.contentResolver.openInputStream(uri)?.use {
             input ->
             val output = java.io.ByteArrayOutputStream()
@@ -228,7 +229,7 @@ class SparkApi private constructor(private val context: Context) {
             bytes=optimized.first;mime=optimized.second
         }
         val ext = mapOf("image/jpeg" to "jpg","image/png" to "png","image/webp" to "webp","video/mp4" to "mp4","video/webm" to "webm")[mime]
-        val path = "$userId/${UUID.randomUUID()}.$ext"
+        val path = "$userId/${if(once)"once/" else ""}${UUID.randomUUID()}.$ext"
         raw("/storage/v1/object/${Backend.BUCKET}/$path", "POST",bytes,mime)
         Pair(path,if(mime.startsWith("video")) "video" else "image")
     }
@@ -272,8 +273,8 @@ class SparkApi private constructor(private val context: Context) {
         return if(url.startsWith("http")) url else Backend.URL+"/storage/v1"+url
     }
     // Embed a single comment per post so scrolling never causes a request per card.
-    val postSelect = "select=*,author:sparknew_profiles!author_id(*),reactions:sparknew_reactions(*),comments:sparknew_comments(count),preview:sparknew_comments(id,post_id,author_id,body,created_at,parent_id,author:sparknew_profiles!author_id(*),likes:sparknew_comment_likes(user_id))&preview.order=created_at.desc,id.desc&preview.limit=1"
-    suspend fun comments(post: String, offset: Int = 0) = rows("comments", "select=*,author:sparknew_profiles!author_id(*),likes:sparknew_comment_likes(user_id),parent:sparknew_comments!parent_id(body,author:sparknew_profiles!author_id(display_name))&post_id=eq.$post&order=created_at.desc,id.desc&limit=50&offset=$offset")
+    val postSelect = "select=*,author:sparknew_profiles!author_id(*),reactions:sparknew_reactions(*),comments:sparknew_comments(count),preview:sparknew_comments(id,post_id,author_id,body,created_at,edited_at,parent_id,author:sparknew_profiles!author_id(*),likes:sparknew_comment_likes(user_id,reaction))&preview.order=created_at.desc,id.desc&preview.limit=1"
+    suspend fun comments(post: String, offset: Int = 0) = rows("comments", "select=*,author:sparknew_profiles!author_id(*),likes:sparknew_comment_likes(user_id,reaction),parent:sparknew_comments!parent_id(body,author:sparknew_profiles!author_id(display_name))&post_id=eq.$post&order=created_at.desc,id.desc&limit=50&offset=$offset")
     suspend fun feed(kind: String="post", extra: String="", offset: Int=0) = rows("posts", "$postSelect&kind=eq.$kind&order=created_at.desc,id.desc&limit=20&offset=$offset$extra")
     suspend fun createPost(body: String, uri: Uri?, kind: String, visibility: String, community: String?=null) {
         require(body.isNotBlank()||uri!=null) {
@@ -307,14 +308,27 @@ class SparkApi private constructor(private val context: Context) {
             if(e.status==409)rows("conversations","user_a=eq.$a&user_b=eq.$b").first() else throw e
         }
     }
-    suspend fun send(chat: String, body: String, uri: Uri?) {
+    suspend fun markSeen(ids:List<String>){if(ids.isNotEmpty())request("/rest/v1/rpc/sparknew_mark_seen","POST",json("message_ids" to JSONArray(ids.take(100))))}
+    suspend fun changeMessage(id:String,action:String,body:String=""){request("/rest/v1/rpc/sparknew_change_message","POST",json("message_id" to id,"action" to action,"new_body" to body))}
+    suspend fun openOnce(id:String):ByteArray=withContext(Dispatchers.IO){
+        fresh()
+        val request=Request.Builder().url("${Backend.URL}/functions/v1/spark-view-once")
+            .header("apikey",Backend.KEY).header("Authorization","Bearer ${session?.s("access_token").orEmpty()}")
+            .header("Cache-Control","no-store").post(json("message_id" to id).toString().toRequestBody("application/json".toMediaType())).build()
+        client.newCall(request).execute().use{response->
+            if(!response.isSuccessful)error(if(response.code==410)"This photo has already been opened or is unavailable." else "Couldn't open photo (${response.code}).")
+            response.body?.bytes()?:error("Photo unavailable.")
+        }
+    }
+    suspend fun send(chat: String, body: String, uri: Uri?,once:Boolean=false) {
         require(body.isNotBlank()||uri!=null) {
             "Write a message first."
         }
         var media:Pair<String,String>?=null
         try {
-            if(uri!=null)media=upload(uri)
-            insert("messages",json("conversation_id" to chat,"sender_id" to userId,"body" to body.trim(),"media_path" to media?.first,"media_type" to media?.second))
+            if(uri!=null)media=upload(uri,once)
+            if(once){require(media!=null){"Select a photo first."};request("/rest/v1/rpc/sparknew_send_once","POST",json("chat_id" to chat,"path" to media.first,"caption" to body.trim()))}
+            else insert("messages",json("conversation_id" to chat,"sender_id" to userId,"body" to body.trim(),"media_path" to media?.first,"media_type" to media?.second))
         }
         catch(e:Exception) {
             if(e is IllegalArgumentException || (e is ApiException && e.status in 400..499)) media?.let {

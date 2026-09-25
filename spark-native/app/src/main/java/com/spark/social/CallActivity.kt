@@ -3,6 +3,9 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.media.AudioManager
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
 import android.webkit.JavascriptInterface
 import android.webkit.PermissionRequest
 import android.webkit.WebChromeClient
@@ -28,6 +31,23 @@ class CallActivity:ComponentActivity() {
     private var caller=false
     private var video=false
     private var ended=false
+    private var audio:AudioManager?=null
+    private var audioFocus:AudioFocusRequest?=null
+    private var priorMode=AudioManager.MODE_NORMAL
+    private var priorSpeaker=false
+    private var speaker=false
+    private fun routeAudio():Boolean {
+        val manager=getSystemService(AudioManager::class.java)
+        audio=manager;priorMode=manager.mode;priorSpeaker=manager.isSpeakerphoneOn
+        volumeControlStream=AudioManager.STREAM_VOICE_CALL
+        val focus=AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+            .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
+            .setOnAudioFocusChangeListener{change->if(change==AudioManager.AUDIOFOCUS_LOSS)runOnUiThread{finish()}}.build()
+        audioFocus=focus
+        if(manager.requestAudioFocus(focus)!=AudioManager.AUDIOFOCUS_REQUEST_GRANTED)return false
+        manager.mode=AudioManager.MODE_IN_COMMUNICATION;speaker=video;manager.isSpeakerphoneOn=speaker
+        return true
+    }
     private val permissionLauncher=registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         grants->
         if(grants.values.all {
@@ -60,6 +80,7 @@ class CallActivity:ComponentActivity() {
         })openWeb()else permissionLauncher.launch(permissions)
     }
     @SuppressLint("SetJavaScriptEnabled") private fun openWeb() {
+        if(!routeAudio()){Toast.makeText(this,"Audio is in use. Try again after the other call ends.",Toast.LENGTH_LONG).show();finish();return}
         val loader=WebViewAssetLoader.Builder().addPathHandler("/assets/",WebViewAssetLoader.AssetsPathHandler(this)).build()
         val view=WebView(this)
         web=view
@@ -114,6 +135,7 @@ class CallActivity:ComponentActivity() {
                             api.insert("ice",json("call_id" to callId,"user_id" to api.userId,"candidate" to value))
                             json("ok" to true)
                         }
+                        "speaker"-> {speaker=!speaker;audio?.isSpeakerphoneOn=speaker;json("speaker" to speaker)}
                         "end"-> {
                             endCall()
                             json("ok" to true)
@@ -152,6 +174,7 @@ class CallActivity:ComponentActivity() {
                 endCall()
             }
         }
+        audio?.let{manager->audioFocus?.let{manager.abandonAudioFocusRequest(it)};manager.isSpeakerphoneOn=priorSpeaker;manager.mode=priorMode}
         super.onDestroy()
     }
 }

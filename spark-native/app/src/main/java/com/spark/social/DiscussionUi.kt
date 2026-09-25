@@ -1,4 +1,4 @@
-@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class,androidx.compose.material3.ExperimentalMaterial3Api::class)
 package com.spark.social
 
 import android.content.Intent
@@ -116,40 +116,60 @@ internal fun compactCount(n:Int):String=when {
     }
 }
 
+@Composable fun CommentActionSheet(own:Boolean,onReact:(String)->Unit,onReply:()->Unit,onEdit:()->Unit,onDelete:()->Unit,onClose:()->Unit) {
+    ModalBottomSheet(onDismissRequest=onClose) {
+        Column(Modifier.fillMaxWidth().padding(horizontal=16.dp).navigationBarsPadding()) {
+            Text("Comment",fontSize=20.sp,fontWeight=FontWeight.Bold)
+            Row(Modifier.fillMaxWidth().padding(vertical=16.dp),horizontalArrangement=Arrangement.SpaceEvenly){reactionEmoji.forEach{(value,emoji)->Text(emoji,Modifier.clickable{onReact(value)}.padding(7.dp).semantics{contentDescription="Comment react $value"},fontSize=28.sp)}}
+            TextButton(onClick=onReply,modifier=Modifier.fillMaxWidth()){Icon(Icons.Outlined.Reply,null);Text(" Reply")}
+            if(own){TextButton(onClick=onEdit,modifier=Modifier.fillMaxWidth()){Icon(Icons.Outlined.Edit,null);Text(" Edit comment")};TextButton(onClick=onDelete,modifier=Modifier.fillMaxWidth()){Icon(Icons.Outlined.DeleteOutline,null);Text(" Delete comment")}}
+            Spacer(Modifier.height(16.dp))
+        }
+    }
+}
 @Composable fun CommentRow(vm:SparkViewModel,comment:JSONObject,onReply:()->Unit,onDeleted:()->Unit) {
-    var liked by remember(comment) { mutableStateOf(comment.rows("likes").any { it.s("user_id")==vm.api.userId }) }
-    var count by remember(comment) { mutableIntStateOf(comment.rows("likes").size) }
-    var busy by remember { mutableStateOf(false) }
-    var deleting by remember { mutableStateOf(false) }
+    var reactions by remember(comment){mutableStateOf(comment.rows("likes"))}
+    var body by remember(comment){mutableStateOf(comment.s("body"))}
+    var edited by remember(comment){mutableStateOf(comment.s("edited_at").isNotBlank())}
+    var busy by remember{mutableStateOf(false)}
+    var menu by remember{mutableStateOf(false)}
+    var editing by remember{mutableStateOf(false)}
+    var deleting by remember{mutableStateOf(false)}
+    val mine=reactions.firstOrNull{it.s("user_id")==vm.api.userId}?.s("reaction")?.ifBlank{"like"}
     val author=comment.child("author")
+    fun react(value:String){if(!busy){busy=true;vm.work{try{
+        val filter="comment_id=eq.${comment.id()}&user_id=eq.${vm.api.userId}"
+        if(mine==value)vm.api.delete("comment_likes",filter)
+        else if(mine==null)vm.api.insert("comment_likes",json("comment_id" to comment.id(),"user_id" to vm.api.userId,"reaction" to value))
+        else vm.api.update("comment_likes",filter,json("reaction" to value))
+        reactions=reactions.filterNot{it.s("user_id")==vm.api.userId}+if(mine==value)emptyList() else listOf(json("user_id" to vm.api.userId,"reaction" to value))
+        comment.put("likes",JSONArray(reactions));menu=false
+    }finally{busy=false}}}}
     Row(Modifier.fillMaxWidth().padding(start=12.dp,end=6.dp,top=4.dp)) {
-        Box(Modifier.border(2.dp,Blue,CircleShape).padding(3.dp)) { Avatar(vm,author,32) { vm.go("Profile",comment.s("author_id")) } }
+        Box(Modifier.border(2.dp,Blue,CircleShape).padding(3.dp)){Avatar(vm,author,32){vm.go("Profile",comment.s("author_id"))}}
         Column(Modifier.weight(1f).padding(start=8.dp)) {
-            Text(author.s("display_name").ifBlank { "Spark member" },fontSize=13.sp,fontWeight=FontWeight.Bold,modifier=Modifier.clickable { vm.go("Profile",comment.s("author_id")) })
+            Text(author.s("display_name").ifBlank{"Spark member"},fontSize=13.sp,fontWeight=FontWeight.Bold,modifier=Modifier.clickable{vm.go("Profile",comment.s("author_id"))})
             val parent=comment.child("parent")
             if(comment.s("parent_id").isNotBlank())Text(if(parent.s("body").isBlank())"Reply" else "↳ ${parent.child("author").s("display_name")}: ${parent.s("body")}",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant,maxLines=2,overflow=TextOverflow.Ellipsis)
-            Text(comment.s("body"),fontSize=17.sp,lineHeight=24.sp)
+            Text(body,Modifier.fillMaxWidth().combinedClickable(onClick={menu=true},onLongClick={menu=true}).padding(vertical=4.dp),fontSize=17.sp,lineHeight=24.sp)
             Row(verticalAlignment=Alignment.CenterVertically) {
-                Text(ago(comment.s("created_at")),fontSize=11.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
-                TextButton(onClick=onReply,contentPadding=PaddingValues(horizontal=12.dp)) { Text("Reply",fontSize=12.sp,fontWeight=FontWeight.SemiBold,color=MaterialTheme.colorScheme.onSurfaceVariant) }
+                Text(ago(comment.s("created_at"))+if(edited)" · Edited" else "",fontSize=11.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                TextButton(onClick=onReply,contentPadding=PaddingValues(horizontal=12.dp)){Text("Reply",fontSize=12.sp,fontWeight=FontWeight.SemiBold)}
                 Spacer(Modifier.weight(1f))
-                if(comment.s("author_id")==vm.api.userId)IconButton(onClick={deleting=true}) { Icon(Icons.Outlined.DeleteOutline,"Delete comment",Modifier.size(18.dp),tint=MaterialTheme.colorScheme.onSurfaceVariant) }
-                Row(Modifier.heightIn(min=48.dp).clickable(enabled=!busy) {
-                    busy=true
-                    vm.work { try {
-                        if(liked)vm.api.delete("comment_likes","comment_id=eq.${comment.id()}&user_id=eq.${vm.api.userId}")
-                        else vm.api.insert("comment_likes",json("comment_id" to comment.id(),"user_id" to vm.api.userId))
-                        val updated=comment.rows("likes").filterNot { it.s("user_id")==vm.api.userId } + if(liked)emptyList() else listOf(json("user_id" to vm.api.userId))
-                        count=updated.size;liked=!liked;comment.put("likes",JSONArray(updated))
-                    }finally { busy=false } }
-                }.padding(horizontal=10.dp),verticalAlignment=Alignment.CenterVertically) {
-                    if(count>0)Text(compactCount(count),fontSize=12.sp,color=if(liked)Blue else MaterialTheme.colorScheme.onSurfaceVariant,modifier=Modifier.padding(end=4.dp))
-                    Icon(Icons.Outlined.ThumbUp,if(liked)"Unlike comment" else "Like comment",Modifier.size(19.dp),tint=if(liked)Blue else MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(Modifier.heightIn(min=48.dp).combinedClickable(enabled=!busy,onClick={react(mine?:"like")},onLongClick={menu=true}).padding(horizontal=10.dp),verticalAlignment=Alignment.CenterVertically) {
+                    if(reactions.isNotEmpty())Text(compactCount(reactions.size),Modifier.padding(end=5.dp),fontSize=12.sp)
+                    if(mine!=null&&mine!="like")Text(reactionEmoji[mine]?:"👍",fontSize=20.sp)
+                    else Icon(Icons.Outlined.ThumbUp,if(mine!=null)"Unlike comment" else "Like comment",Modifier.size(19.dp),tint=if(mine!=null)Blue else MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
     }
-    if(deleting)Confirm("Delete comment?","This also removes its replies.",{deleting=false}) { if(!busy) { busy=true;vm.work { try {vm.api.delete("comments","id=eq.${comment.id()}");deleting=false;onDeleted()}finally {busy=false} } } }
+    if(menu)CommentActionSheet(comment.s("author_id")==vm.api.userId,{react(it)},{menu=false;onReply()},{menu=false;editing=true},{menu=false;deleting=true},{menu=false})
+    if(editing)TextForm("Edit comment",listOf("Comment" to body),vm,{editing=false}){values->
+        val value=values[0].trim();require(value.length in 1..3000){"Write between 1 and 3000 characters."}
+        vm.api.update("comments","id=eq.${comment.id()}",json("body" to value));body=value;edited=true;comment.put("body",value);editing=false
+    }
+    if(deleting)Confirm("Delete comment?","This also removes its replies.",{deleting=false}){if(!busy){busy=true;vm.work{try{vm.api.delete("comments","id=eq.${comment.id()}");deleting=false;onDeleted()}finally{busy=false}}}}
 }
 
 @Composable fun CommentComposer(vm:SparkViewModel,post:String,reply:JSONObject?,onCancelReply:()->Unit,onSent:(JSONObject)->Unit) {

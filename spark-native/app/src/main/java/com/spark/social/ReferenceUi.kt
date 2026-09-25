@@ -146,7 +146,9 @@ import kotlinx.coroutines.launch
     var create by remember { mutableStateOf(false) }
     val feed=remember { FeedPager {vm.api.feed("reel",offset=it)} }
     val scope=rememberCoroutineScope()
-    val videos=feed.posts
+    var selected by remember(vm.page.id){mutableStateOf<org.json.JSONObject?>(null)}
+    LaunchedEffect(vm.page.id){if(vm.page.id.isNotBlank())try{selected=vm.api.rows("posts","${vm.api.postSelect}&id=eq.${vm.page.id}&kind=eq.reel").firstOrNull()}catch(e:kotlinx.coroutines.CancellationException){throw e}catch(e:Exception){vm.notice=e.message}}
+    val videos=(listOfNotNull(selected)+feed.posts).distinctBy{it.id()}
     val loading=feed.loading
     val more=feed.more
     LaunchedEffect(vm.revision) {feed.load(refresh=true)}

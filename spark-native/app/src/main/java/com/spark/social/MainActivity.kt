@@ -57,6 +57,7 @@ import coil.request.ImageRequest
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collectLatest
 import org.json.JSONObject
 import java.time.Instant
 internal val Blue=Color(0xFF0866FF)
@@ -401,12 +402,13 @@ fun ago(raw:String):String=runCatching {
     LazyColumn(state=listState,contentPadding=PaddingValues(bottom=12.dp),verticalArrangement=Arrangement.spacedBy(0.dp)) {
         item { FeedComposer(vm) { compose=true } }
         if(kind=="post"&&community==null)item { Stories(vm) }
-        if(kind=="post"&&community==null)item { PeopleSuggestions(vm) }
-        items(posts,key= {
-            it.id()
-        }) {
-            PostCard(vm,it)
+        posts.forEachIndexed {index,post->
+            item(key=post.id()){PostCard(vm,post)}
+            if(kind=="post"&&community==null&&index==2)item(key="people-suggestions"){PeopleSuggestions(vm)}
+            if(kind=="post"&&community==null&&index==5)item(key="reels-cards"){FeedReels(vm)}
         }
+        if(kind=="post"&&community==null&&posts.size<3)item(key="people-suggestions-short"){PeopleSuggestions(vm)}
+        if(kind=="post"&&community==null&&posts.size<6)item(key="reels-cards-short"){FeedReels(vm)}
         if(loading)item {
             Box(Modifier.fillMaxWidth().padding(24.dp),contentAlignment=Alignment.Center) {
                 CircularProgressIndicator()
@@ -885,6 +887,8 @@ fun ago(raw:String):String=runCatching {
     }
 }
 @Composable fun ChatScreen(vm:SparkViewModel,id:String) {
+    val messageListState=androidx.compose.foundation.lazy.rememberLazyListState()
+    var once by rememberSaveable(id){mutableStateOf(false)}
     var messages by remember(id) {
         mutableStateOf(emptyList<JSONObject>())
     }
@@ -906,7 +910,7 @@ fun ago(raw:String):String=runCatching {
     val lifecycle=LocalLifecycleOwner.current
     val context=LocalContext.current
     val pick=rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) {
-        uri=it
+        uri=it;once=false
     }
     LaunchedEffect(id) {
         try {
@@ -916,7 +920,7 @@ fun ago(raw:String):String=runCatching {
         }
     }
     LaunchedEffect(id,vm.revision,limit,lifecycle) {
-        lifecycle.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+        lifecycle.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             while(true) {
                 try {
                     messages=vm.api.rows("messages","conversation_id=eq.$id&order=created_at.desc,id.desc&limit=$limit").reversed()
@@ -928,6 +932,16 @@ fun ago(raw:String):String=runCatching {
                     error=true
                 }
                 delay(4000)
+            }
+        }
+    }
+    LaunchedEffect(id,lifecycle,messageListState) {
+        lifecycle.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            snapshotFlow {
+                val visible=messageListState.layoutInfo.visibleItemsInfo.map{it.key.toString()}.toSet()
+                messages.filter{it.id() in visible&&it.s("sender_id")!=vm.api.userId&&it.s("seen_at").isBlank()&&it.s("unsent_at").isBlank()}.map{it.id()}
+            }.collectLatest {ids->
+                if(ids.isNotEmpty()){delay(400);try{vm.api.markSeen(ids)}catch(e:CancellationException){throw e}catch(_:Exception){}}
             }
         }
     }
@@ -947,20 +961,11 @@ fun ago(raw:String):String=runCatching {
                 }
             }
         }
-        LazyColumn(Modifier.weight(1f).fillMaxWidth(),reverseLayout=true,contentPadding=PaddingValues(12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+        LazyColumn(Modifier.weight(1f).fillMaxWidth(),state=messageListState,reverseLayout=true,contentPadding=PaddingValues(12.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
             items(messages.reversed(),key= {
                 it.id()
             }) {
-                m->val own=m.s("sender_id")==vm.api.userId
-                Row(Modifier.fillMaxWidth(),horizontalArrangement=if(own)Arrangement.End else Arrangement.Start) {
-                    Surface(color=if(own)Blue else MaterialTheme.colorScheme.surface,shape=RoundedCornerShape(18.dp),modifier=Modifier.widthIn(max=290.dp)) {
-                        Column(Modifier.padding(12.dp)) {
-                            if(m.s("body").isNotBlank())Text(m.s("body"),color=if(own)Color.White else MaterialTheme.colorScheme.onSurface)
-                            Media(vm,m.s("media_path"),m.s("media_type"))
-                            Text(ago(m.s("created_at")),fontSize=10.sp,color=if(own)Color.White.copy(alpha=.75f)else MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                }
+                m->ChatMessage(vm,m)
             }
             if(messages.size>=limit)item {
                 TextButton(onClick= {
@@ -973,15 +978,15 @@ fun ago(raw:String):String=runCatching {
                 Empty("Start with hello","Your messages will appear here.")
             }
         }
-        if(uri!=null)TextButton(onClick= {
-            uri=null
-        }) {
-            Text("Attachment selected · Remove")
+        if(uri!=null)Row(Modifier.fillMaxWidth().padding(horizontal=12.dp),verticalAlignment=Alignment.CenterVertically) {
+            TextButton(onClick={uri=null;once=false}){Text("Remove attachment")}
+            Spacer(Modifier.weight(1f))
+            if(context.contentResolver.getType(uri!!)?.startsWith("image/")==true){Text("View once",fontSize=13.sp);Switch(checked=once,onCheckedChange={once=it})}
         }
         MessageComposer(text,onTextChange={text=it},busy=vm.tasks>0,hasAttachment=uri!=null,onAttach={pick.launch("*/*")}) {
             vm.work {
-                vm.api.send(id,text,uri)
-                text="";uri=null;vm.refresh()
+                vm.api.send(id,text,uri,once)
+                text="";uri=null;once=false;vm.refresh()
             }
         }
     }
