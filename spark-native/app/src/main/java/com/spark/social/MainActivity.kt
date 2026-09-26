@@ -428,12 +428,12 @@ fun ago(raw:String):String=runCatching {
     LazyColumn(state=listState,contentPadding=PaddingValues(bottom=12.dp),verticalArrangement=Arrangement.spacedBy(0.dp)) {
         item { FeedComposer(vm) { compose=true } }
         if(kind=="post"&&community==null)item { Stories(vm) }
-        if(kind=="post"&&community==null)item(key="friends-reels") { FeedReels(vm) }
         posts.forEachIndexed {index,post->
             item(key=post.id()){PostCard(vm,post)}
-            if(kind=="post"&&community==null&&index==2)item(key="people-suggestions"){PeopleSuggestions(vm)}
+            if(kind=="post"&&community==null&&index==2)item(key="friends-reels"){FeedReels(vm)}
+            if(kind=="post"&&community==null&&index==5)item(key="people-suggestions"){PeopleSuggestions(vm)}
         }
-        if(kind=="post"&&community==null&&posts.size<3)item(key="people-suggestions-short"){PeopleSuggestions(vm)}
+        if(kind=="post"&&community==null&&posts.size<6)item(key="people-suggestions-short"){PeopleSuggestions(vm)}
         if(loading)item {
             Box(Modifier.fillMaxWidth().padding(24.dp),contentAlignment=Alignment.Center) {
                 CircularProgressIndicator()
@@ -442,6 +442,7 @@ fun ago(raw:String):String=runCatching {
         if(posts.isEmpty()&&!loading&&pager.error==null)item {
             Empty(if(kind=="reel")"Your next favorite moment" else "Start the conversation",if(kind=="reel")"Share your first video reel." else "There are no posts yet. Share a moment or invite a friend.")
         }
+        if(kind=="post"&&community==null&&posts.size<3&&!loading)item(key="friends-reels-short"){FeedReels(vm)}
         if(pager.error!=null)item { TextButton(onClick={scope.launch {pager.load(refresh=posts.isEmpty())}},modifier=Modifier.fillMaxWidth()) {Text("Couldn't load posts. Retry")} }
         if(more&&posts.isNotEmpty()&&pager.error==null)item {
             TextButton(enabled=!loading,onClick= {
@@ -1074,56 +1075,7 @@ fun ago(raw:String):String=runCatching {
         })
     }
 }
-@Composable fun NotificationsScreen(vm:SparkViewModel) {
-    Rows(vm,"notices", {
-        vm.api.rows("notifications","select=*,actor:sparknew_profiles!actor_id(*)&order=created_at.desc&limit=100")
-    }) {
-        rows->LazyColumn {
-            item {
-                Section("Notifications","Mark all read") {
-                    vm.work {
-                        vm.api.update("notifications","recipient_id=eq.${vm.api.userId}",json("is_read" to true))
-                        vm.refresh()
-                    }
-                }
-            }
-            items(rows,key= {
-                it.id()
-            }) {
-                n->val kind=n.s("kind")
-                Surface(color=if(n.optBoolean("is_read"))MaterialTheme.colorScheme.surface else Blue.copy(alpha=.09f),onClick= {
-                    vm.work {
-                        vm.api.update("notifications","id=eq.${n.id()}",json("is_read" to true))
-                        when(kind) {
-                            "message"->vm.go("Chat",n.s("target_id"),n.child("actor").s("display_name"))
-                            "friend_request","friend_accepted"->vm.go("Friends")
-                            else->vm.go("Comments",n.s("target_id"))
-                        }
-                        vm.refresh()
-                    }
-                }) {
-                    Row(Modifier.padding(16.dp),verticalAlignment=Alignment.CenterVertically) {
-                        Avatar(vm,n.child("actor"),48)
-                        Column(Modifier.padding(start=12.dp)) {
-                            Text(n.child("actor").s("display_name"),fontWeight=FontWeight.Bold)
-                            Text(when(kind) {
-                                "message"->"sent you a message"
-                                "friend_request"->"sent a friend request"
-                                "friend_accepted"->"accepted your friend request"
-                                "reaction"->"reacted to your post"
-                                else->"commented on your post"
-                            })
-                            Text(ago(n.s("created_at")),fontSize=12.sp,color=Blue)
-                        }
-                    }
-                }
-            }
-            if(rows.isEmpty())item {
-                Empty("You're all caught up","New reactions, requests and messages appear here.",Icons.Outlined.Notifications)
-            }
-        }
-    }
-}
+@Composable fun NotificationsScreen(vm:SparkViewModel) { NotificationInbox(vm) }
 @Composable fun MenuScreen(vm:SparkViewModel) {
     var logout by remember {
         mutableStateOf(false)
