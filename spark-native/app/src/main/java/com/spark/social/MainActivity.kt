@@ -428,6 +428,7 @@ fun ago(raw:String):String=runCatching {
     LazyColumn(state=listState,contentPadding=PaddingValues(bottom=12.dp),verticalArrangement=Arrangement.spacedBy(0.dp)) {
         item { FeedComposer(vm) { compose=true } }
         if(kind=="post"&&community==null)item { Stories(vm) }
+        if(kind=="post"&&community==null)item(key="friends-reels") { FeedReels(vm) }
         posts.forEachIndexed {index,post->
             item(key=post.id()){PostCard(vm,post)}
             if(kind=="post"&&community==null&&index==2)item(key="people-suggestions"){PeopleSuggestions(vm)}

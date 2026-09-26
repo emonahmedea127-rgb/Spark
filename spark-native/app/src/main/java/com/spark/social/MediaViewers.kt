@@ -1,6 +1,7 @@
 package com.spark.social
 
 import android.content.Context
+import android.os.SystemClock
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -44,6 +45,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -64,9 +66,11 @@ import coil.request.CachePolicy
 import coil.request.ImageRequest
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import org.json.JSONObject
 
 data class MediaAccess(val url:String,val headers:Map<String,String>)
+private class ReelWatchCounter(var watchedMs:Long=0)
 
 @Composable fun PrivateImage(
     vm:SparkViewModel,path:String,modifier:Modifier=Modifier,
@@ -196,7 +200,7 @@ internal fun createSparkPlayer(context:Context,access:MediaAccess):ExoPlayer {
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable fun SparkVideo(
     vm:SparkViewModel,path:String,modifier:Modifier=Modifier,
-    onProgress:(Float)->Unit={},onEnded:()->Unit={},paused:Boolean=false,loop:Boolean=false,controls:Boolean=true
+    onProgress:(Float)->Unit={},onEnded:()->Unit={},paused:Boolean=false,loop:Boolean=false,controls:Boolean=true,reelId:String=""
 ) {
     var access by remember(path) { mutableStateOf<MediaAccess?>(null) }
     var error by remember(path) { mutableStateOf<String?>(null) }
@@ -216,10 +220,20 @@ internal fun createSparkPlayer(context:Context,access:MediaAccess):ExoPlayer {
             val context=LocalContext.current
             val lifecycle=LocalLifecycleOwner.current.lifecycle
             val player=remember(source,attempt) { createSparkPlayer(context,source) }
+            val watch=remember(player){ReelWatchCounter()}
             var buffering by remember(player) { mutableStateOf(true) }
             var wasPlaying by remember(player) { mutableStateOf(true) }
             val pauseNow by rememberUpdatedState(paused)
             DisposableEffect(player,lifecycle) {
+                fun submitWatch(){
+                    val watched=watch.watchedMs.coerceAtMost(14_400_000).toInt()
+                    val duration=player.duration.coerceAtMost(14_400_000).toInt()
+                    watch.watchedMs=0
+                    if(reelId.isNotBlank()&&watched>=1000&&duration>=1000)vm.viewModelScope.launch {
+                        try { vm.api.request("/rest/v1/rpc/sparknew_record_reel_playback","POST",json("content_id" to reelId,"played_ms" to watched,"media_ms" to duration)) }
+                        catch(e:CancellationException){throw e}catch(_:Exception){}
+                    }
+                }
                 val listener=object:Player.Listener {
                     override fun onPlaybackStateChanged(state:Int) {
                         buffering=state==Player.STATE_BUFFERING
@@ -236,7 +250,7 @@ internal fun createSparkPlayer(context:Context,access:MediaAccess):ExoPlayer {
                     }
                 }
                 val observer=LifecycleEventObserver { _,event ->
-                    if(event==Lifecycle.Event.ON_STOP) { wasPlaying=player.playWhenReady;player.pause() }
+                    if(event==Lifecycle.Event.ON_STOP) { wasPlaying=player.playWhenReady;player.pause();submitWatch() }
                     if(event==Lifecycle.Event.ON_START&&wasPlaying&&!pauseNow)player.play()
                 }
                 player.addListener(listener);lifecycle.addObserver(observer)
@@ -244,15 +258,20 @@ internal fun createSparkPlayer(context:Context,access:MediaAccess):ExoPlayer {
                 player.seekTo(resumeAt);player.prepare()
                 player.playWhenReady=!paused&&lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
                 onDispose {
+                    submitWatch()
                     resumeAt=player.currentPosition
                     lifecycle.removeObserver(observer);player.removeListener(listener);player.release()
                 }
             }
             LaunchedEffect(paused,player) { if(paused)player.pause() else if(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))player.play() }
             LaunchedEffect(player) {
+                var last=SystemClock.elapsedRealtime()
                 while(true) {
+                    val now=SystemClock.elapsedRealtime()
+                    if(player.isPlaying)watch.watchedMs+=(now-last).coerceIn(0,1000)
+                    last=now
                     if(player.duration>0)progress((player.currentPosition.toFloat()/player.duration).coerceIn(0f,1f))
-                    delay(100)
+                    delay(500)
                 }
             }
             AndroidView(factory={ctx->PlayerView(ctx).apply {

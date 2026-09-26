@@ -14,9 +14,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import org.json.JSONArray
 
 @Composable fun FeedReels(vm:SparkViewModel) {
-    Rows(vm,"feed-reels",{vm.api.rows("posts","${vm.api.postSelect}&kind=eq.reel&order=created_at.desc,id.desc&limit=6")}){reels->
+    Rows(vm,"feed-reels",{JSONArray(vm.api.request("/rest/v1/rpc/sparknew_friend_reels?${vm.api.postSelect}")).rows()}){reels->
         if(reels.isNotEmpty())Column(Modifier.fillMaxWidth().padding(vertical=12.dp)) {
             Row(Modifier.padding(horizontal=16.dp),verticalAlignment=Alignment.CenterVertically){Icon(Icons.Outlined.SmartDisplay,null,tint=Blue);Text(" Reels",Modifier.weight(1f),fontWeight=FontWeight.Bold,fontSize=21.sp);TextButton(onClick={vm.go("Reels")}){Text("See all")}}
             LazyRow(contentPadding=PaddingValues(horizontal=12.dp),horizontalArrangement=Arrangement.spacedBy(10.dp)) {

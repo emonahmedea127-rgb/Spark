@@ -108,12 +108,31 @@ import org.json.JSONObject
                 InsightMetric("Reactions",item.optLong("reactions"),Modifier.weight(1f))
                 InsightMetric("Comments",item.optLong("comments"),Modifier.weight(1f))
             }
+            if(item.s("kind")=="reel") {
+                Text("Watch performance",fontSize=20.sp,fontWeight=FontWeight.Bold)
+                Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                    InsightMetric("Plays",item.optLong("plays"),Modifier.weight(1f))
+                    InsightMetric("Unique viewers",item.optLong("unique_viewers"),Modifier.weight(1f))
+                }
+                Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                    ReelInsightMetric("Average view duration","${item.optDouble("avg_view_seconds")}s",Modifier.weight(1f))
+                    ReelInsightMetric("Total watch time","${item.optDouble("total_watch_seconds")}s",Modifier.weight(1f))
+                }
+                Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                    ReelInsightMetric("Watched to end","${item.optDouble("completion_rate")}%",Modifier.weight(1f))
+                    ReelInsightMetric("Video length","${item.optDouble("avg_video_seconds")}s",Modifier.weight(1f))
+                }
+                Text("Watch metrics collect from this app version onward. A play counts after one second of actual playback.",color=MaterialTheme.colorScheme.onSurfaceVariant,fontSize=12.sp)
+            }
             Text("Views count distinct signed-in viewers once per day.",color=MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
 @Composable private fun InsightMetric(label:String,value:Long,modifier:Modifier){
     OutlinedCard(modifier){Column(Modifier.padding(15.dp)){Text(label);Text(value.toString(),fontSize=24.sp,fontWeight=FontWeight.Bold)}}
+}
+@Composable private fun ReelInsightMetric(label:String,value:String,modifier:Modifier){
+    OutlinedCard(modifier){Column(Modifier.padding(12.dp)){Text(label,fontSize=12.sp);Text(value,fontSize=21.sp,fontWeight=FontWeight.Bold)}}
 }
 
 @Composable fun CommunityInbox(vm:SparkViewModel) {

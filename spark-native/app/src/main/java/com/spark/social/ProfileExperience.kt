@@ -180,6 +180,7 @@ suspend fun SparkApi.profilePeople(id:String,kind:String,offset:Int=0,size:Int=2
                             Text(if(post.s("kind")=="reel")"Reel" else "Post",fontWeight=FontWeight.Bold,color=Blue)
                             Text(post.s("body").ifBlank{"Media post"},maxLines=2)
                             Text("Views ${post.optLong("views")}  ·  Reactions ${post.optLong("reactions")}  ·  Comments ${post.optLong("comments")}",color=MaterialTheme.colorScheme.onSurfaceVariant)
+                            if(post.s("kind")=="reel")Text("Plays ${post.optLong("plays")}  ·  Average view ${post.optDouble("avg_view_seconds")}s",color=MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }

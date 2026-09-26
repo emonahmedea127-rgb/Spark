@@ -279,6 +279,9 @@ class SparkApi private constructor(private val context: Context) {
         if(kind=="post"&&extra.isBlank()) JSONArray(request(
             "/rest/v1/rpc/sparknew_ranked_feed?$postSelect&page_offset=$offset&page_size=20"
         )).rows()
+        else if(kind=="reel"&&extra.isBlank()) JSONArray(request(
+            "/rest/v1/rpc/sparknew_ranked_reels?$postSelect&page_offset=$offset&page_size=20"
+        )).rows()
         else rows("posts", "$postSelect&kind=eq.$kind&order=created_at.desc,id.desc&limit=20&offset=$offset$extra")
     suspend fun createPost(body: String, uri: Uri?, kind: String, visibility: String, community: String?=null) {
         require(body.isNotBlank()||uri!=null) {
