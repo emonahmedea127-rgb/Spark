@@ -131,7 +131,9 @@ suspend fun SparkApi.profilePeople(id:String,kind:String,offset:Int=0,size:Int=2
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(12.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)){
             listOf("Analytics","Content","Community").forEach{tab->FilterChip(selected=section==tab,onClick={section=tab},label={Text(tab)})}
         }
-        LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(14.dp)){
+        if(section=="Content")ContentLibraryScreen(vm,content)
+        else if(section=="Community")CommunityInbox(vm)
+        else LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(14.dp)){
             item {
                 Row(verticalAlignment=Alignment.CenterVertically){
                     Avatar(vm,vm.me?:JSONObject(),56)
@@ -159,11 +161,7 @@ suspend fun SparkApi.profilePeople(id:String,kind:String,offset:Int=0,size:Int=2
                     item { Text("Earnings are unavailable until monetisation is enabled.",color=MaterialTheme.colorScheme.onSurfaceVariant) }
                 }
             }
-            if(section=="Community")item {
-                Text("Manage verification requests and your community",fontWeight=FontWeight.Bold)
-                TextButton(onClick={vm.go("Badge requests")}){Text("Verification badges")}
-            }
-            if(section!="Community") {
+            if(section=="Analytics") {
                 item { Text("Content",fontSize=23.sp,fontWeight=FontWeight.Bold) }
                 items(content,key={it.id()}){post->
                     OutlinedCard(Modifier.fillMaxWidth().clickable{selected=post}){
@@ -174,7 +172,7 @@ suspend fun SparkApi.profilePeople(id:String,kind:String,offset:Int=0,size:Int=2
                         }
                     }
                 }
-                if(content.isEmpty()&&!loading&&error==null)item{Text("No posts or reels in this period.")}
+                if(content.isEmpty()&&!loading&&error==null)item{Text("No posts or reels yet.")}
             }
         }
     }

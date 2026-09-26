@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 package com.spark.social
 import android.app.Application
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -64,6 +65,26 @@ internal val Blue=Color(0xFF0866FF)
 data class Page(val name:String,val id:String="",val title:String="")
 class SparkViewModel(app:Application):AndroidViewModel(app) {
     val api=SparkApi.get(app)
+    private val feedSeen=app.getSharedPreferences("spark.feed.seen",Context.MODE_PRIVATE)
+    var unreadCount by mutableIntStateOf(0)
+    var newPostCount by mutableIntStateOf(0)
+    private val soundPrefs=app.getSharedPreferences("spark.sounds",Context.MODE_PRIVATE)
+    var soundsEnabled by mutableStateOf(soundPrefs.getBoolean("enabled",true))
+        private set
+    fun setSoundsEnabled(value:Boolean){soundsEnabled=value;soundPrefs.edit().putBoolean("enabled",value).apply()}
+    fun sound(event:SparkSounds.Event){SparkSounds.play(getApplication(),event,soundsEnabled)}
+    fun lastHomeSeen():String {
+        val key="seen:${api.userId}"
+        val existing=feedSeen.getString(key,null)
+        if(existing!=null)return existing
+        val first=Instant.now().toString()
+        feedSeen.edit().putString(key,first).apply()
+        return first
+    }
+    private fun markHomeSeen(){
+        if(api.userId.isNotBlank())feedSeen.edit().putString("seen:${api.userId}",Instant.now().toString()).apply()
+        newPostCount=0
+    }
     var me by mutableStateOf<JSONObject?>(null)
     var starting by mutableStateOf(true)
     var tasks by mutableIntStateOf(0)
@@ -79,9 +100,11 @@ class SparkViewModel(app:Application):AndroidViewModel(app) {
         }
     }
     fun go(name:String,id:String="",title:String="") {
+        if(page.name=="Home"&&name!="Home")markHomeSeen()
         stack.add(Page(name,id,title))
     }
     fun tab(name:String) {
+        if(page.name=="Home"||name=="Home")markHomeSeen()
         stack.clear()
         stack.add(Page(name,if(name=="Profile")api.userId else ""))
     }
@@ -173,6 +196,7 @@ class MainActivity:ComponentActivity() {
                     "Edit profile"->EditProfileScreen(vm)
                     "Connections"->ProfileConnectionsScreen(vm,vm.page.id,vm.page.title)
                     "Dashboard"->ProfileDashboard(vm)
+                    "Content insights"->ContentInsightScreen(vm,vm.page.id)
                     "Badge requests"->BadgeRequestsScreen(vm)
                     "About"->ProfileAboutScreen(vm,vm.page.id)
                     "Suggestions"->PeopleSuggestions(vm,fullPage=true)
@@ -190,6 +214,7 @@ class MainActivity:ComponentActivity() {
         }
     }
     if(vm.me!=null)IncomingCalls(vm)
+    if(vm.me!=null)UnreadBadges(vm)
     if(newPost&&vm.me!=null)NewPostScreen(vm,"post",null) { newPost=false }
 }
 @Composable fun AuthScreen(vm:SparkViewModel) {
@@ -406,10 +431,8 @@ fun ago(raw:String):String=runCatching {
         posts.forEachIndexed {index,post->
             item(key=post.id()){PostCard(vm,post)}
             if(kind=="post"&&community==null&&index==2)item(key="people-suggestions"){PeopleSuggestions(vm)}
-            if(kind=="post"&&community==null&&index==5)item(key="reels-cards"){FeedReels(vm)}
         }
         if(kind=="post"&&community==null&&posts.size<3)item(key="people-suggestions-short"){PeopleSuggestions(vm)}
-        if(kind=="post"&&community==null&&posts.size<6)item(key="reels-cards-short"){FeedReels(vm)}
         if(loading)item {
             Box(Modifier.fillMaxWidth().padding(24.dp),contentAlignment=Alignment.Center) {
                 CircularProgressIndicator()
@@ -511,6 +534,9 @@ fun ago(raw:String):String=runCatching {
             }
             if(post.s("media_path").isBlank()&&post.s("body").isNotBlank())Text(post.s("body"),Modifier.padding(start=14.dp,end=14.dp,bottom=14.dp),fontSize=16.sp)
             Media(vm,post.s("media_path"),post.s("media_type"),post=post)
+            if(post.s("author_id")==vm.api.userId)TextButton(onClick={vm.go("Content insights",post.id())},modifier=Modifier.fillMaxWidth()) {
+                Icon(Icons.Outlined.BarChart,null,Modifier.size(18.dp));Text(" See insights")
+            }
             PostDiscussion(vm,post)
         }
     }
@@ -989,6 +1015,7 @@ fun ago(raw:String):String=runCatching {
         MessageComposer(text,onTextChange={text=it},busy=vm.tasks>0,hasAttachment=uri!=null,onAttach={pick.launch("*/*")}) {
             vm.work {
                 vm.api.send(id,text,uri,once)
+                vm.sound(SparkSounds.Event.MESSAGE)
                 text="";uri=null;once=false;vm.refresh()
             }
         }
@@ -1120,6 +1147,12 @@ fun ago(raw:String):String=runCatching {
             }
         }
         item {
+            Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
+                Text("App sounds",modifier=Modifier.weight(1f))
+                Switch(checked=vm.soundsEnabled,onCheckedChange=vm::setSoundsEnabled)
+            }
+        }
+        item {
             OutlinedButton(onClick= {
                 logout=true
             },modifier=Modifier.fillMaxWidth()) {
@@ -1127,7 +1160,7 @@ fun ago(raw:String):String=runCatching {
             }
         }
         item {
-            Text("Spark 1.0 · A place for your people",color=MaterialTheme.colorScheme.onSurfaceVariant,fontSize=12.sp)
+            Text("Spark 1.10 · A place for your people",color=MaterialTheme.colorScheme.onSurfaceVariant,fontSize=12.sp)
         }
     }
     if(logout)Confirm("Log out?","You can sign back in with your email and password.", {

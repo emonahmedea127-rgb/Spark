@@ -57,6 +57,7 @@ internal fun compactCount(n:Int):String=when {
                 if(mine==value)vm.api.delete("reactions",query)
                 else if(mine==null)vm.api.insert("reactions",json("post_id" to post.id(),"user_id" to vm.api.userId,"reaction" to value))
                 else vm.api.update("reactions",query,json("reaction" to value))
+                if(mine!=value)vm.sound(if(value=="like")SparkSounds.Event.LIKE else SparkSounds.Event.REACT)
                 reactions=reactions.filterNot { it.s("user_id")==vm.api.userId } +
                     if(mine==value)emptyList() else listOf(json("user_id" to vm.api.userId,"reaction" to value))
                 post.put("reactions",JSONArray(reactions));picking=false
@@ -142,6 +143,7 @@ internal fun compactCount(n:Int):String=when {
         if(mine==value)vm.api.delete("comment_likes",filter)
         else if(mine==null)vm.api.insert("comment_likes",json("comment_id" to comment.id(),"user_id" to vm.api.userId,"reaction" to value))
         else vm.api.update("comment_likes",filter,json("reaction" to value))
+        if(mine!=value)vm.sound(if(value=="like")SparkSounds.Event.LIKE else SparkSounds.Event.REACT)
         reactions=reactions.filterNot{it.s("user_id")==vm.api.userId}+if(mine==value)emptyList() else listOf(json("user_id" to vm.api.userId,"reaction" to value))
         comment.put("likes",JSONArray(reactions));menu=false
     }finally{busy=false}}}}
@@ -212,6 +214,7 @@ internal fun compactCount(n:Int):String=when {
 @Composable fun CommentsScreen(vm:SparkViewModel,post:String) {
     var comments by remember(post) { mutableStateOf(emptyList<JSONObject>()) }
     var reply by remember(post) { mutableStateOf<JSONObject?>(null) }
+    var initialReplyHandled by remember(post){mutableStateOf(false)}
     var offset by remember(post) { mutableIntStateOf(0) }
     var more by remember(post) { mutableStateOf(true) }
     var loading by remember(post) { mutableStateOf(false) }
@@ -227,6 +230,11 @@ internal fun compactCount(n:Int):String=when {
         }catch(e:CancellationException) { throw e }catch(e:Exception) {failed=true;vm.notice=e.message}finally {loading=false}
     }
     LaunchedEffect(post,vm.revision) { load(true) }
+    LaunchedEffect(comments,vm.page.title) {
+        if(vm.page.title.isNotBlank()&&!initialReplyHandled)comments.firstOrNull{it.id()==vm.page.title}?.let {
+            reply=it;initialReplyHandled=true
+        }
+    }
     Column(Modifier.fillMaxSize().imePadding()) {
         LazyColumn(Modifier.weight(1f)) {
             item { Text("Comments",Modifier.padding(16.dp),fontWeight=FontWeight.Bold,fontSize=20.sp) }
@@ -237,6 +245,6 @@ internal fun compactCount(n:Int):String=when {
             else if(!loading&&more)item { TextButton(onClick={scope.launch {load(false)}},modifier=Modifier.fillMaxWidth()) { Text("More comments") } }
         }
         HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
-        CommentComposer(vm,post,reply,onCancelReply={reply=null}) { created->comments=listOf(created)+comments;offset++;reply=null }
+        CommentComposer(vm,post,reply,onCancelReply={reply=null}) { created->comments=listOf(created)+comments;offset++;reply=null;vm.refresh() }
     }
 }

@@ -34,8 +34,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import coil.compose.AsyncImage
 import org.json.JSONObject
+import android.net.Uri
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @Composable fun SparkTopBar(vm:SparkViewModel,onCreate:()->Unit) {
@@ -66,10 +72,47 @@ import kotlinx.coroutines.launch
                         Box(Modifier.fillMaxWidth().padding(horizontal=4.dp).height(3.dp).background(if(selected)Blue else Color.Transparent,RoundedCornerShape(bottomStart=4.dp,bottomEnd=4.dp)))
                         Box(Modifier.weight(1f),contentAlignment=Alignment.Center) {
                             if(name=="Profile")Box(Modifier.border(if(selected)2.dp else 0.dp,if(selected)Blue else Color.Transparent,CircleShape).padding(3.dp)) { Avatar(vm,vm.me!!,28) { vm.tab("Profile") } }
-                            else Icon(if(name=="Home"&&selected)Icons.Filled.Home else icon,name,tint=if(selected)if(dark)Color.White else Blue else ink,modifier=Modifier.size(28.dp))
+                            else Box{
+                                Icon(if(name=="Home"&&selected)Icons.Filled.Home else icon,name,tint=if(selected)if(dark)Color.White else Blue else ink,modifier=Modifier.size(28.dp))
+                                val number=when(name){"Home"->vm.newPostCount;"Notifications"->vm.unreadCount;else->0}
+                                if(number>0)Surface(Modifier.align(Alignment.TopEnd).offset(x=10.dp,y=(-7).dp).defaultMinSize(minWidth=18.dp,minHeight=18.dp),shape=CircleShape,color=Color(0xFFE82E43)){
+                                    Box(contentAlignment=Alignment.Center){Text(if(number>99)"99+" else number.toString(),Modifier.padding(horizontal=4.dp),color=Color.White,fontSize=10.sp,fontWeight=FontWeight.Bold)}
+                                }
+                            }
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable fun UnreadBadges(vm:SparkViewModel){
+    val lifecycle=LocalLifecycleOwner.current
+    var known by remember(vm.api.userId){mutableStateOf<Set<String>>(emptySet())}
+    var initialized by remember(vm.api.userId){mutableStateOf(false)}
+    var postsInitialized by remember(vm.api.userId){mutableStateOf(false)}
+    LaunchedEffect(vm.api.userId,lifecycle,vm.revision){
+        lifecycle.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED){
+            while(true){
+                try{
+                    val notices=vm.api.rows("notifications","select=id,kind&is_read=eq.false&order=created_at.desc&limit=99")
+                    val ids=notices.map{it.id()}.toSet()
+                    if(initialized){
+                        val arrivals=notices.filter{it.id() !in known}
+                        if(arrivals.isNotEmpty())vm.sound(if(arrivals.any{it.s("kind")=="message"})SparkSounds.Event.MESSAGE else SparkSounds.Event.NOTICE)
+                    }
+                    known=ids;initialized=true
+                    vm.unreadCount=notices.size
+                    if(vm.page.name!="Home"){
+                        val result=vm.api.request("/rest/v1/rpc/sparknew_unread_friend_posts?since_time=${Uri.encode(vm.lastHomeSeen())}")
+                        val count=result.trim().toIntOrNull()?.coerceIn(0,99)?:0
+                        if(count>vm.newPostCount&&postsInitialized)vm.sound(SparkSounds.Event.POST)
+                        vm.newPostCount=count
+                        postsInitialized=true
+                    }else{vm.newPostCount=0;postsInitialized=true}
+                }catch(e:CancellationException){throw e}catch(_:Exception){}
+                delay(12000)
             }
         }
     }
@@ -97,7 +140,7 @@ import kotlinx.coroutines.launch
                 Row(Modifier.fillMaxWidth().padding(8.dp),verticalAlignment=Alignment.CenterVertically) {
                     IconButton(enabled=vm.tasks==0,onClick=onClose) { Icon(Icons.Outlined.Close,"Close composer") }
                     Text(if(kind=="story")"New story" else if(kind=="reel")"New reel" else "New post",fontWeight=FontWeight.Bold,fontSize=20.sp,modifier=Modifier.weight(1f),textAlign=TextAlign.Center)
-                    Button(enabled=vm.tasks==0&&(body.isNotBlank()||uri!=null),shape=RoundedCornerShape(8.dp),onClick={vm.work { vm.api.createPost(body,uri,kind,audience,community);vm.refresh();onClose() }}) { Text(if(vm.tasks>0)"Posting…" else "Post") }
+                    Button(enabled=vm.tasks==0&&(body.isNotBlank()||uri!=null),shape=RoundedCornerShape(8.dp),onClick={vm.work { vm.api.createPost(body,uri,kind,audience,community);vm.sound(SparkSounds.Event.POST);vm.refresh();onClose() }}) { Text(if(vm.tasks>0)"Posting…" else "Post") }
                 }
                 if(vm.tasks>0)LinearProgressIndicator(Modifier.fillMaxWidth())
                 Row(Modifier.padding(16.dp),verticalAlignment=Alignment.CenterVertically) {
@@ -199,6 +242,7 @@ import kotlinx.coroutines.launch
         item { SettingsRow("Saved posts",Icons.Outlined.BookmarkBorder) { vm.go("Saved") } }
         item { SettingsRow("Blocked accounts",Icons.Outlined.Block) { vm.go("Blocked") } }
         item { SettingsRow("Find people",Icons.Outlined.Search) { vm.go("Search") } }
+        item { SettingsRow("Request a verification badge",Icons.Outlined.Verified) { vm.go("Badge requests") } }
         item { SettingsRow("Dark mode",Icons.Outlined.DarkMode) { vm.dark=!vm.dark } }
         item { SettingsRow("Refresh profile",Icons.Outlined.Refresh) { vm.refresh();vm.back() } }
         item { SettingsRow("More settings",Icons.Outlined.Settings) { vm.go("Menu") } }

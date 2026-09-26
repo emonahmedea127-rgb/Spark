@@ -22,8 +22,7 @@ import androidx.compose.ui.unit.sp
             LazyRow(contentPadding=PaddingValues(horizontal=12.dp),horizontalArrangement=Arrangement.spacedBy(10.dp)) {
                 items(reels,key={it.id()}){reel->Card(onClick={vm.go("Reels",reel.id())},modifier=Modifier.width(164.dp).height(252.dp),shape=RoundedCornerShape(14.dp)) {
                     Box(Modifier.fillMaxSize().background(Color(0xFF172438))) {
-                        val avatar=reel.child("author").s("avatar_path")
-                        if(avatar.isNotBlank())PrivateImage(vm,avatar,Modifier.fillMaxSize())
+                        VideoThumbnail(vm,reel.s("media_path"),Modifier.fillMaxSize())
                         Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha=.3f)))
                         Icon(Icons.Outlined.PlayCircle,"Play reel",Modifier.align(Alignment.Center).size(48.dp),tint=Color.White)
                         Column(Modifier.align(Alignment.BottomStart).padding(12.dp)){Text(reel.child("author").s("display_name"),color=Color.White,fontWeight=FontWeight.Bold,maxLines=1,overflow=TextOverflow.Ellipsis);Text(reel.s("body"),color=Color.White,maxLines=2,overflow=TextOverflow.Ellipsis,fontSize=13.sp)}
