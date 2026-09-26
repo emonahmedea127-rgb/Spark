@@ -17,6 +17,7 @@ select public.sparknew_react_to_story(current_setting('test.story')::uuid,'love'
 select pg_temp.verify((select count(*)=1 from public.sparknew_story_reaction_events where post_id=current_setting('test.story')::uuid),'Retry event is idempotent');
 select public.sparknew_react_to_story(current_setting('test.story')::uuid,'love',gen_random_uuid());
 select public.sparknew_react_to_story(current_setting('test.story')::uuid,'haha',gen_random_uuid());
+select pg_temp.verify((select count(*)=3 from public.sparknew_messages where sender_id=current_setting('test.b')::uuid),'Each reaction reaches inbox once, retry does not duplicate');
 select pg_temp.verify((select count(*)=3 from public.sparknew_story_reaction_events where post_id=current_setting('test.story')::uuid),'Repeated and different emoji taps persist');
 select pg_temp.verify((select count(*)=1 from public.sparknew_reactions where post_id=current_setting('test.story')::uuid),'Post compatibility keeps one latest reaction');
 select pg_temp.deny(format('select public.sparknew_react_to_story(%L::uuid,''love'',gen_random_uuid())',current_setting('test.private')),'Private story cannot be reacted to by outsider');
@@ -27,5 +28,7 @@ select set_config('request.jwt.claims',json_build_object('sub',current_setting('
 select pg_temp.verify((select count(*)=0 from public.sparknew_story_reaction_events where post_id=current_setting('test.story')::uuid),'Other viewer cannot read private reaction history');
 select set_config('request.jwt.claims',json_build_object('sub',current_setting('test.a'),'role','authenticated')::text,true);
 select pg_temp.verify((select total=2 from public.sparknew_story_reaction_totals(current_setting('test.story')::uuid) where reaction='love'),'Owner sees accurate repeated reaction count');
+select pg_temp.verify((select count(*)=3 from public.sparknew_messages where sender_id=current_setting('test.b')::uuid),'Owner can read reaction inbox messages');
+select pg_temp.verify((select count(*)=1 from public.sparknew_post_views where post_id=current_setting('test.story')::uuid and viewer_id=current_setting('test.b')::uuid),'Reactor appears in story viewers');
 select name,passed from spark_story_checks;
 rollback;
