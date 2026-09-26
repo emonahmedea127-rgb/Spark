@@ -181,7 +181,7 @@ suspend fun SparkApi.profilePeople(id:String,kind:String,offset:Int=0,size:Int=2
                     Text("Latest post",color=MaterialTheme.colorScheme.onSurfaceVariant,modifier=Modifier.padding(top=4.dp))
                 }
                 if(!loading&&error==null)content.maxByOrNull{it.s("created_at")}?.let{post->
-                    item { LatestContentOverview(vm,post){selected=post} }
+                    item { LatestContentOverview(vm,post){vm.go("Content insights",post.id())} }
                 }
                 if(content.isEmpty()&&!loading&&error==null)item{Text("No posts or reels yet.")}
             }

@@ -904,7 +904,9 @@ fun ago(raw:String):String=runCatching {
     var text by rememberSaveable(id) {
         mutableStateOf("")
     }
-    var uri by remember {
+    var sending by remember(id) { mutableStateOf(false) }
+    var otherTyping by remember(id) { mutableStateOf(false) }
+    var uri by remember(id) {
         mutableStateOf<Uri?>(null)
     }
     var limit by remember(id) {
@@ -933,6 +935,7 @@ fun ago(raw:String):String=runCatching {
             while(true) {
                 try {
                     messages=vm.api.rows("messages","select=*,sender:sparknew_profiles!sender_id(*)&conversation_id=eq.$id&order=created_at.desc,id.desc&limit=$limit").reversed()
+                    otherTyping=runCatching {vm.api.rows("chat_typing","conversation_id=eq.$id&user_id=neq.${vm.api.userId}&typed_at=gt.${Uri.encode(Instant.now().minusSeconds(7).toString())}").isNotEmpty()}.getOrDefault(false)
                     error=false
                 }catch(e:CancellationException) {
                     throw e
@@ -954,6 +957,17 @@ fun ago(raw:String):String=runCatching {
             }
         }
     }
+    LaunchedEffect(id,text,lifecycle) {
+        lifecycle.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            if(text.isNotBlank())delay(350)
+            do {
+                try {vm.api.request("/rest/v1/rpc/sparknew_set_typing","POST",json("chat_id" to id,"is_typing" to text.isNotBlank()))}
+                catch(e:CancellationException){throw e}catch(_:Exception){}
+                if(text.isBlank())break
+                delay(3000)
+            }while(true)
+        }
+    }
     KeyboardAwareChatColumn {
         Row(Modifier.fillMaxWidth().padding(horizontal=12.dp),verticalAlignment=Alignment.CenterVertically) {
             IconButton(onClick={vm.back()}){Icon(Icons.AutoMirrored.Outlined.ArrowBack,"Back")}
@@ -961,7 +975,7 @@ fun ago(raw:String):String=runCatching {
             Avatar(vm,other,40){if(other.id().isNotBlank())vm.go("Profile",other.id())}
             Column(Modifier.weight(1f).padding(start=8.dp)){
                 Text(other.s("display_name").ifBlank{vm.page.title},fontWeight=FontWeight.Bold,maxLines=1)
-                Text(if(error)"Connection interrupted" else presenceLabel(vm,other.id()),fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(if(error)"Connection interrupted" else if(otherTyping)"Typing…" else presenceLabel(vm,other.id()),fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
             }
             listOf(false,true).forEach {
                 video->IconButton(enabled=conversation!=null&&vm.tasks==0,onClick= {
@@ -998,11 +1012,17 @@ fun ago(raw:String):String=runCatching {
             Spacer(Modifier.weight(1f))
             if(context.contentResolver.getType(uri!!)?.startsWith("image/")==true){Text("View once",fontSize=13.sp);Switch(checked=once,onCheckedChange={once=it})}
         }
-        MessageComposer(text,onTextChange={text=it},busy=vm.tasks>0,hasAttachment=uri!=null,onAttach={pick.launch("*/*")}) {
-            vm.work {
-                vm.api.send(id,text,uri,once)
-                vm.sound(SparkSounds.Event.MESSAGE)
-                text="";uri=null;once=false;vm.refresh()
+        MessageComposer(text,onTextChange={text=it},busy=sending,hasAttachment=uri!=null,onAttach={pick.launch("*/*")}) {
+            if(!sending) {
+                val sentText=text;val sentUri=uri;val sentOnce=once
+                sending=true
+                vm.work {try {
+                    vm.api.send(id,sentText,sentUri,sentOnce)
+                    vm.sound(SparkSounds.Event.MESSAGE)
+                    if(text==sentText)text=""
+                    if(uri==sentUri){uri=null;once=false}
+                    messageListState.animateScrollToItem(0);vm.refresh()
+                }finally{sending=false}}
             }
         }
     }

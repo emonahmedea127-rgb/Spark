@@ -70,7 +70,9 @@ import java.time.ZoneId
         else->Icons.Outlined.Notifications
     }
     val eventColor=when(kind){"comment"->Color(0xFF279B45);"reaction"->Color(0xFF1877F2);"message"->Color(0xFF7456CF);else->Blue}
-    val subject=if(post?.s("kind")=="reel")"reel" else "post"
+    var openedStory by remember { mutableStateOf<JSONObject?>(null) }
+    openedStory?.let{StoryDialog(vm,listOf(it),0){openedStory=null}}
+    val subject=when(post?.s("kind")){"reel"->"reel";"story"->"story";else->"post"}
     val description=when(kind){
         "friend_request"->" sent you a friend request."
         "friend_accepted"->" accepted your friend request."
@@ -85,7 +87,15 @@ import java.time.ZoneId
         when(kind){
             "message"->vm.go("Chat",n.s("target_id"),actor.s("display_name"))
             "friend_request","friend_accepted","profile_visit"->vm.go("Profile",n.s("actor_id"))
-            "reaction","comment"->vm.go("Comments",n.s("target_id"))
+            "reaction","comment"->{
+                val target=vm.api.rows("posts","${vm.api.postSelect}&id=eq.${n.s("target_id")}").firstOrNull()
+                when {
+                    target==null->vm.notice="This content has expired or is no longer available."
+                    target.s("kind")=="story"->openedStory=target
+                    target.s("kind")=="reel"&&kind=="reaction"->vm.go("Reels",target.id())
+                    else->vm.go("Comments",target.id())
+                }
+            }
             else->vm.go("Profile",n.s("actor_id"))
         };vm.refresh()
     }}) {

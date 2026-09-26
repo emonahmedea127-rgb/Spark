@@ -99,7 +99,7 @@ import org.json.JSONObject
         error?.let{Text(it,color=MaterialTheme.colorScheme.error)}
         content?.let{item->
             Text(item.s("body").ifBlank{"Media post"},maxLines=3)
-            if(item.s("media_type")=="image")PrivateImage(vm,item.s("media_path"),Modifier.fillMaxWidth().height(240.dp))
+            if(item.s("media_path").isNotBlank())PrivateImage(vm,item.s("media_path"),Modifier.fillMaxWidth().height(240.dp),videoFrame=item.s("media_type")=="video")
             Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
                 InsightMetric("Views",item.optLong("views"),Modifier.weight(1f))
                 InsightMetric("Engagement",item.optLong("reactions")+item.optLong("comments"),Modifier.weight(1f))
@@ -140,7 +140,7 @@ import org.json.JSONObject
     var error by remember(vm.revision){mutableStateOf<String?>(null)}
     LaunchedEffect(vm.revision){
         try {
-            val raw=vm.api.request("/rest/v1/rpc/sparknew_pending_comments?select=*,author:sparknew_profiles!author_id(display_name,avatar_path),post:sparknew_posts!post_id(body,media_path)&limit=100")
+            val raw=vm.api.request("/rest/v1/rpc/sparknew_pending_comments?select=*,author:sparknew_profiles!author_id(display_name,avatar_path),post:sparknew_posts!post_id(body,media_path,media_type)&limit=100")
             pending=org.json.JSONArray(raw).rows()
         }catch(e:CancellationException){throw e}catch(e:Exception){error=e.message}
     }
@@ -157,6 +157,7 @@ import org.json.JSONObject
                         Text(comment.s("body"),maxLines=2,overflow=TextOverflow.Ellipsis)
                         Text("On: ${comment.child("post").s("body").ifBlank{"Your post"}}",fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant,maxLines=1)
                     }
+                    if(comment.child("post").s("media_path").isNotBlank())PrivateImage(vm,comment.child("post").s("media_path"),Modifier.padding(start=8.dp).size(56.dp),videoFrame=comment.child("post").s("media_type")=="video",targetPx=160)
                     Icon(Icons.Outlined.Reply,"Reply",tint=Blue)
                 }
             }

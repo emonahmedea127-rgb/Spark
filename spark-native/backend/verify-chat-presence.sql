@@ -14,10 +14,18 @@ select pg_temp.verify((select count(*)=1 from public.sparknew_presence where use
 with m as(insert into public.sparknew_messages(conversation_id,sender_id,body) values(current_setting('test.chat')::uuid,current_setting('test.a')::uuid,'Receipt test') returning id) select set_config('test.message',id::text,true) from m;
 select public.sparknew_mark_delivered(array[current_setting('test.message')::uuid]);
 select pg_temp.verify((select delivered_at is null from public.sparknew_messages where id=current_setting('test.message')::uuid),'Sender cannot acknowledge own message');
+select public.sparknew_set_typing(current_setting('test.chat')::uuid,true);
 select set_config('request.jwt.claims',json_build_object('sub',current_setting('test.c'),'role','authenticated')::text,true);
+select pg_temp.verify((select count(*)=0 from public.sparknew_chat_typing where conversation_id=current_setting('test.chat')::uuid),'Nonparticipant cannot read typing');
+select pg_temp.deny(format('select public.sparknew_set_typing(%L,true)',current_setting('test.chat')),'Nonparticipant cannot send typing');
 select public.sparknew_mark_delivered(array[current_setting('test.message')::uuid]);
 select pg_temp.verify((select count(*)=0 from public.sparknew_presence where user_id=current_setting('test.a')::uuid),'Unrelated user cannot see presence');
 select set_config('request.jwt.claims',json_build_object('sub',current_setting('test.b'),'role','authenticated')::text,true);
+select pg_temp.verify((select count(*)=1 from public.sparknew_chat_typing where conversation_id=current_setting('test.chat')::uuid),'Participant can see typing');
+select pg_temp.deny(format('insert into public.sparknew_chat_typing(conversation_id,user_id) values(%L,%L)',current_setting('test.chat'),current_setting('test.c')),'Cannot impersonate typing user');
+select public.sparknew_set_typing(current_setting('test.chat')::uuid,true);
+select public.sparknew_set_typing(current_setting('test.chat')::uuid,false);
+select pg_temp.verify((select count(*)=0 from public.sparknew_chat_typing where user_id=current_setting('test.b')::uuid),'Typing clears when draft is empty');
 select pg_temp.verify((select delivered_at is null from public.sparknew_messages where id=current_setting('test.message')::uuid),'Nonparticipant cannot acknowledge');
 select pg_temp.verify((select count(*)=1 from public.sparknew_presence where user_id=current_setting('test.a')::uuid),'Chat participant can see presence');
 select public.sparknew_mark_delivered(array[current_setting('test.message')::uuid]);
