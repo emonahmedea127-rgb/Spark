@@ -2,6 +2,13 @@ package com.spark.social
 
 import android.content.Intent
 import androidx.core.content.FileProvider
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.graphics.graphicsLayer
+import java.util.UUID
+import org.json.JSONArray
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -58,7 +65,9 @@ import java.io.File
     var viewers by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var viewerError by remember { mutableStateOf(false) }
     var reactions by remember { mutableStateOf(story.rows("reactions")) }
-    val mine=reactions.firstOrNull{it.s("user_id")==vm.api.userId}?.s("reaction")
+    var reactionTotals by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var pendingReactions by remember { mutableIntStateOf(0) }
+    val bursts=remember { mutableStateListOf<StoryBurst>() }
     var progress by remember { mutableFloatStateOf(0f) }
     var ready by remember { mutableStateOf(story.s("media_path").isBlank()) }
     val lifecycle=LocalLifecycleOwner.current.lifecycle
@@ -67,7 +76,7 @@ import java.io.File
         val observer=LifecycleEventObserver{_,_->active=lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)}
         lifecycle.addObserver(observer);onDispose{lifecycle.removeObserver(observer)}
     }
-    val stopped=paused||menu||viewersOpen||confirmDelete||compose||publishKind.isNotBlank()||reply.isNotBlank()||busy||!active
+    val stopped=paused||menu||viewersOpen||confirmDelete||compose||publishKind.isNotBlank()||reply.isNotBlank()||busy||pendingReactions>0||!active
     LaunchedEffect(active) {
         if(!active)return@LaunchedEffect
         if(!own)runCatching{vm.api.request("/rest/v1/rpc/sparknew_record_view","POST",json("content_id" to story.id()))}
@@ -75,7 +84,8 @@ import java.io.File
             runCatching {
                 val rows=vm.api.rows("post_views","select=viewer_id,viewer:sparknew_profiles!viewer_id(*)&post_id=eq.${story.id()}&order=viewed_on.desc")
                 val likes=vm.api.rows("reactions","post_id=eq.${story.id()}")
-                viewers=rows.distinctBy{it.s("viewer_id")};reactions=likes;viewerError=false
+                val totals=JSONArray(vm.api.request("/rest/v1/rpc/sparknew_story_reaction_totals","POST",json("content_id" to story.id()))).rows()
+                viewers=rows.distinctBy{it.s("viewer_id")};reactions=likes;reactionTotals=totals;viewerError=false
             }.onFailure{viewerError=true}
             delay(10000)
         }
@@ -90,17 +100,18 @@ import java.io.File
         vm.work { try { val chat=vm.api.conversation(story.s("author_id"));vm.api.send(chat.id(),"Reply to your story${story.s("body").take(100).let{if(it.isBlank())"" else ": $it"}}\n$text",null);reply="";feedback="Reply sent" }finally{busy=false} }
     }
     fun react(value:String) {
-        if(busy)return
-        busy=true
+        if(pendingReactions>=30)return
+        val eventId=UUID.randomUUID().toString()
+        if(bursts.size>=18)bursts.removeAt(0)
+        bursts.add(StoryBurst(eventId,value))
+        pendingReactions++
+        vm.sound(if(value=="like")SparkSounds.Event.LIKE else SparkSounds.Event.REACT)
         vm.work { try {
-            val query="post_id=eq.${story.id()}&user_id=eq.${vm.api.userId}"
-            if(mine==value)vm.api.delete("reactions",query)
-            else if(mine==null)vm.api.insert("reactions",json("post_id" to story.id(),"user_id" to vm.api.userId,"reaction" to value))
-            else vm.api.update("reactions",query,json("reaction" to value))
-            reactions=reactions.filterNot{it.s("user_id")==vm.api.userId}+if(mine==value)emptyList() else listOf(json("user_id" to vm.api.userId,"reaction" to value))
-            if(mine!=value)vm.sound(if(value=="like")SparkSounds.Event.LIKE else SparkSounds.Event.REACT)
-            feedback=if(mine==value)"Reaction removed" else "Reaction sent"
-        }finally{busy=false} }
+            vm.api.request("/rest/v1/rpc/sparknew_react_to_story","POST",json("content_id" to story.id(),"reaction_value" to value,"event_id" to eventId))
+        } catch(e:Exception) {
+            feedback="Reaction wasn't sent. Please try again."
+            throw e
+        } finally { pendingReactions-- } }
     }
     fun share() {
         if(busy)return
@@ -121,6 +132,11 @@ import java.io.File
         if(video)SparkVideo(vm,story.s("media_path"),Modifier.fillMaxSize().padding(top=90.dp,bottom=110.dp),onProgress={progress=it},onEnded=next,paused=stopped)
         else if(story.s("media_path").isNotBlank())PrivateImage(vm,story.s("media_path"),Modifier.fillMaxSize().padding(bottom=90.dp),ContentScale.Fit,onReady={ready=true},targetPx=1600)
         else Text(story.s("body"),Modifier.align(Alignment.Center).padding(32.dp),color=Color.White,fontSize=30.sp,textAlign=TextAlign.Center)
+        // Behind controls: taps on media navigate without stealing reply/reaction clicks.
+        Box(Modifier.fillMaxSize().pointerInput(index,total) {
+            detectTapGestures(onTap={position->if(position.x<size.width/2f)previous() else next()})
+        })
+        bursts.forEach { burst->key(burst.id) { FloatingStoryEmoji(burst,Modifier.align(Alignment.BottomEnd).padding(end=40.dp,bottom=160.dp)){bursts.remove(burst)} } }
         Column(Modifier.align(Alignment.TopCenter).fillMaxWidth().background(Brush.verticalGradient(listOf(Color.Black.copy(alpha=.8f),Color.Transparent))).statusBarsPadding().padding(12.dp)) {
             Row(horizontalArrangement=Arrangement.spacedBy(3.dp)){repeat(total){i->LinearProgressIndicator(progress={if(i<index)1f else if(i==index)progress else 0f},modifier=Modifier.weight(1f).height(3.dp),color=Color.White,trackColor=Color.Gray)}}
             Row(verticalAlignment=Alignment.CenterVertically,modifier=Modifier.padding(top=10.dp)) {
@@ -162,9 +178,11 @@ import java.io.File
                 Row(verticalAlignment=Alignment.CenterVertically) {
                     OutlinedTextField(reply,{reply=it},placeholder={Text("Send message…",color=Color.LightGray)},singleLine=true,shape=CircleShape,modifier=Modifier.weight(1f),colors=OutlinedTextFieldDefaults.colors(focusedTextColor=Color.White,unfocusedTextColor=Color.White,unfocusedContainerColor=Color.DarkGray,focusedContainerColor=Color.DarkGray))
                     if(reply.isNotBlank())IconButton(enabled=!busy,onClick={send(reply)}){Icon(Icons.AutoMirrored.Outlined.Send,"Send reply",tint=Color.White)}
-                    else {
-                        IconButton(enabled=!busy,onClick={react("love")},modifier=Modifier.padding(start=6.dp).background(if(mine=="love")Color(0xFFFF2967) else Color(0xFF8C2345),CircleShape)){Icon(Icons.Outlined.Favorite,"Love story",tint=Color.White)}
-                        IconButton(enabled=!busy,onClick={react("like")},modifier=Modifier.padding(start=6.dp).background(if(mine=="like")Color(0xFF0866FF) else Color(0xFF234D8C),CircleShape)){Icon(Icons.Outlined.ThumbUp,"Like story",tint=Color.White)}
+
+                }
+                Row(Modifier.fillMaxWidth().padding(top=8.dp),horizontalArrangement=Arrangement.SpaceEvenly) {
+                    listOf("like","love","haha","wow","sad","angry").forEach { value ->
+                        TextButton(enabled=pendingReactions<30,onClick={react(value)},contentPadding=PaddingValues(4.dp),modifier=Modifier.size(46.dp)) { Text(storyEmoji(value),fontSize=30.sp) }
                     }
                 }
             }
@@ -178,7 +196,7 @@ import java.io.File
     if(viewersOpen)AlertDialog(onDismissRequest={viewersOpen=false},title={Text("${viewers.size} viewers")},text={
         LazyColumn(Modifier.fillMaxWidth().heightIn(max=400.dp)) {
             if(viewers.isEmpty())item{Text(if(viewerError)"Could not load viewers. Close and reopen to retry." else "No viewers yet.")}
-            items(viewers,key={it.s("viewer_id")}){row->Row(Modifier.fillMaxWidth().padding(vertical=8.dp),verticalAlignment=Alignment.CenterVertically){Avatar(vm,row.child("viewer"),42);Text(row.child("viewer").s("display_name"),Modifier.weight(1f).padding(start=10.dp));Text(when(reactions.firstOrNull{it.s("user_id")==row.s("viewer_id")}?.s("reaction")){"love"->"❤️";"like"->"👍";"haha"->"😆";"wow"->"😮";"sad"->"😢";"angry"->"😡";else->""},fontSize=24.sp)}}
+            items(viewers,key={it.s("viewer_id")}){row->Row(Modifier.fillMaxWidth().padding(vertical=8.dp),verticalAlignment=Alignment.CenterVertically){Avatar(vm,row.child("viewer"),42);Text(row.child("viewer").s("display_name"),Modifier.weight(1f).padding(start=10.dp));Text(storyReactionLabel(row.s("viewer_id"),reactionTotals,reactions),fontSize=16.sp,modifier=Modifier.widthIn(max=140.dp))}}
         }
     },confirmButton={TextButton(onClick={viewersOpen=false}){Text("Done")}})
     if(compose)ComposeDialog(vm,"story"){compose=false}
@@ -188,4 +206,23 @@ import java.io.File
 
 @Composable private fun StoryAction(label:String,icon:androidx.compose.ui.graphics.vector.ImageVector,onClick:()->Unit) {
     Column(Modifier.clickable(onClick=onClick).padding(8.dp),horizontalAlignment=Alignment.CenterHorizontally){Icon(icon,label,tint=Color.White,modifier=Modifier.size(30.dp));Text(label,color=Color.White,fontSize=13.sp,modifier=Modifier.padding(top=8.dp))}
+}
+
+private data class StoryBurst(val id:String,val reaction:String)
+private fun storyEmoji(value:String)=when(value){"love"->"❤️";"like"->"👍";"haha"->"😆";"wow"->"😮";"sad"->"😢";"angry"->"😡";else->""}
+private fun storyReactionLabel(user:String,totals:List<JSONObject>,legacy:List<JSONObject>):String {
+    val mine=totals.filter{it.s("user_id")==user}
+    return if(mine.isNotEmpty())mine.joinToString(" "){storyEmoji(it.s("reaction"))+" ×"+it.optLong("total")} else storyEmoji(legacy.firstOrNull{it.s("user_id")==user}?.s("reaction").orEmpty())
+}
+@Composable private fun FloatingStoryEmoji(burst:StoryBurst,modifier:Modifier,onDone:()->Unit) {
+    val travel=remember { Animatable(0f) }
+    val drift=remember { ((burst.id.hashCode().toLong() and 255)-128).toFloat() }
+    LaunchedEffect(burst.id){travel.animateTo(1f,tween(1400));onDone()}
+    Text(storyEmoji(burst.reaction),fontSize=42.sp,modifier=modifier.graphicsLayer {
+        translationY=-420.dp.toPx()*travel.value
+        translationX=drift*travel.value
+        alpha=1f-travel.value
+        scaleX=.8f+travel.value*.6f;scaleY=scaleX
+        rotationZ=drift*.15f*travel.value
+    })
 }
