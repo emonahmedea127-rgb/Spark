@@ -65,6 +65,7 @@ internal val Blue=Color(0xFF0866FF)
 data class Page(val name:String,val id:String="",val title:String="")
 class SparkViewModel(app:Application):AndroidViewModel(app) {
     val api=SparkApi.get(app)
+    var presenceRows by mutableStateOf<List<JSONObject>>(emptyList())
     private val feedSeen=app.getSharedPreferences("spark.feed.seen",Context.MODE_PRIVATE)
     var unreadCount by mutableIntStateOf(0)
     var newPostCount by mutableIntStateOf(0)
@@ -214,7 +215,7 @@ class MainActivity:ComponentActivity() {
         }
     }
     if(vm.me!=null)IncomingCalls(vm)
-    if(vm.me!=null)UnreadBadges(vm)
+    if(vm.me!=null){UnreadBadges(vm);ChatPresenceSync(vm)}
     if(newPost&&vm.me!=null)NewPostScreen(vm,"post",null) { newPost=false }
 }
 @Composable fun AuthScreen(vm:SparkViewModel) {
@@ -893,38 +894,7 @@ fun ago(raw:String):String=runCatching {
         }
     }
 }
-@Composable fun ChatsScreen(vm:SparkViewModel) {
-    Rows(vm,"chats", {
-        vm.api.rows("conversations","select=*,a:sparknew_profiles!user_a(*),b:sparknew_profiles!user_b(*)&order=created_at.desc&limit=100")
-    }) {
-        chats->LazyColumn {
-            item {
-                Section("Chats","New message") {
-                    vm.go("Search")
-                }
-            }
-            items(chats,key= {
-                it.id()
-            }) {
-                c->val other=c.child(if(c.s("user_a")==vm.api.userId)"b" else "a")
-                Surface(onClick= {
-                    vm.go("Chat",c.id(),other.s("display_name"))
-                }) {
-                    Row(Modifier.fillMaxWidth().padding(16.dp),verticalAlignment=Alignment.CenterVertically) {
-                        Avatar(vm,other,54)
-                        Column(Modifier.padding(start=12.dp)) {
-                            Text(other.s("display_name"),fontWeight=FontWeight.Bold)
-                            Text("Open conversation",fontSize=13.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                }
-            }
-            if(chats.isEmpty())item {
-                Empty("Say hello","Find a friend and start a conversation.",Icons.Outlined.Chat)
-            }
-        }
-    }
-}
+@Composable fun ChatsScreen(vm:SparkViewModel) { MessengerInbox(vm) }
 @Composable fun ChatScreen(vm:SparkViewModel,id:String) {
     val messageListState=androidx.compose.foundation.lazy.rememberLazyListState()
     var once by rememberSaveable(id){mutableStateOf(false)}
@@ -953,7 +923,7 @@ fun ago(raw:String):String=runCatching {
     }
     LaunchedEffect(id) {
         try {
-            conversation=vm.api.rows("conversations","id=eq.$id").firstOrNull()
+            conversation=vm.api.rows("conversations","select=*,a:sparknew_profiles!user_a(*),b:sparknew_profiles!user_b(*)&id=eq.$id").firstOrNull()
         }catch(e:Exception) {
             vm.notice=e.message
         }
@@ -962,7 +932,7 @@ fun ago(raw:String):String=runCatching {
         lifecycle.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             while(true) {
                 try {
-                    messages=vm.api.rows("messages","conversation_id=eq.$id&order=created_at.desc,id.desc&limit=$limit").reversed()
+                    messages=vm.api.rows("messages","select=*,sender:sparknew_profiles!sender_id(*)&conversation_id=eq.$id&order=created_at.desc,id.desc&limit=$limit").reversed()
                     error=false
                 }catch(e:CancellationException) {
                     throw e
@@ -986,7 +956,13 @@ fun ago(raw:String):String=runCatching {
     }
     KeyboardAwareChatColumn {
         Row(Modifier.fillMaxWidth().padding(horizontal=12.dp),verticalAlignment=Alignment.CenterVertically) {
-            Text(if(error)"Connection interrupted" else "Private conversation",fontSize=12.sp,modifier=Modifier.weight(1f))
+            IconButton(onClick={vm.back()}){Icon(Icons.AutoMirrored.Outlined.ArrowBack,"Back")}
+            val other=conversation?.let{it.child(if(it.s("user_a")==vm.api.userId)"b" else "a")}?:JSONObject()
+            Avatar(vm,other,40){if(other.id().isNotBlank())vm.go("Profile",other.id())}
+            Column(Modifier.weight(1f).padding(start=8.dp)){
+                Text(other.s("display_name").ifBlank{vm.page.title},fontWeight=FontWeight.Bold,maxLines=1)
+                Text(if(error)"Connection interrupted" else presenceLabel(vm,other.id()),fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             listOf(false,true).forEach {
                 video->IconButton(enabled=conversation!=null&&vm.tasks==0,onClick= {
                     vm.work {

@@ -44,7 +44,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @Composable fun SparkTopBar(vm:SparkViewModel,onCreate:()->Unit) {
-    if(vm.page.name in listOf("Reels","Profile"))return
+    if(vm.page.name in listOf("Reels","Profile","Chat"))return
     TopAppBar(colors=TopAppBarDefaults.topAppBarColors(containerColor=MaterialTheme.colorScheme.surface),title={
         Text(if(vm.page.name=="Home")"spark" else vm.page.title.ifBlank { vm.page.name },fontWeight=FontWeight.Bold,
             fontSize=if(vm.page.name=="Home")34.sp else 28.sp,color=if(vm.page.name=="Home")Blue else MaterialTheme.colorScheme.onSurface)
@@ -157,7 +157,7 @@ import kotlinx.coroutines.launch
                     uri?.let { selected ->
                         val context=LocalContext.current
                         val video=remember(selected) { context.contentResolver.getType(selected)?.startsWith("video/")==true }
-                        if(video)Surface(shape=RoundedCornerShape(14.dp),color=MaterialTheme.colorScheme.surfaceVariant) { Row(Modifier.fillMaxWidth().padding(28.dp)) { Icon(Icons.Outlined.VideoFile,null);Text(" Video attached") } }
+                        if(video)VideoThumbnail(vm,selected.toString(),Modifier.fillMaxWidth().height(260.dp))
                         else AsyncImage(model=selected,contentDescription="Selected photo",modifier=Modifier.fillMaxWidth().height(260.dp),contentScale=ContentScale.Fit)
                         TextButton(onClick={uri=null}) { Text("Remove attachment") }
                     }
@@ -209,7 +209,7 @@ import kotlinx.coroutines.launch
                 val post=videos[index]
                 var paused by remember(post.id()) { mutableStateOf(false) }
                 Box(Modifier.fillMaxSize()) {
-                    if(index==pager.currentPage)SparkVideo(vm,post.s("media_path"),Modifier.fillMaxSize(),loop=true,controls=false,paused=paused)
+                    if(index==pager.currentPage)SparkVideo(vm,post.s("media_path"),Modifier.fillMaxSize(),loop=true,controls=false,paused=paused,reelId=if(post.s("author_id")==vm.api.userId)"" else post.id())
                     Box(Modifier.fillMaxSize().clickable { paused=!paused })
                     if(paused)Icon(Icons.Outlined.PlayCircle,"Resume reel",tint=Color.White,modifier=Modifier.align(Alignment.Center).size(68.dp))
                     Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Brush.verticalGradient(listOf(Color.Transparent,Color.Black.copy(alpha=.8f)))).padding(top=30.dp,bottom=48.dp)) {

@@ -76,11 +76,8 @@ private class ReelWatchCounter(var watchedMs:Long=0)
     vm:SparkViewModel,path:String,modifier:Modifier=Modifier,
     contentScale:ContentScale=ContentScale.Crop,videoFrame:Boolean=false,onReady:()->Unit={},targetPx:Int=960,onRatio:(Float)->Unit={}
 ) {
-    // Never download an entire video just to draw a scrolling thumbnail.
     if(videoFrame) {
-        Box(modifier.background(Color(0xFF20242B)),contentAlignment=Alignment.Center) {
-            Icon(Icons.Outlined.PlayCircle,"Video",tint=Color.White.copy(alpha=.7f),modifier=Modifier.size(40.dp))
-        };return
+        VideoThumbnail(vm,path,modifier);return
     }
     var bytes by remember(path,vm.api.userId) { mutableStateOf<ByteArray?>(null) }
     var failed by remember(path) { mutableStateOf(false) }

@@ -3,6 +3,7 @@ package com.spark.social
 import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
 import android.os.Build
+import android.net.Uri
 import android.util.LruCache
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -17,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -26,15 +28,17 @@ private val frameCache=object:LruCache<String,Bitmap>(12*1024*1024) {
 }
 
 @Composable fun VideoThumbnail(vm:SparkViewModel,path:String,modifier:Modifier=Modifier) {
+    val context=LocalContext.current
     var frame by remember(path,vm.api.userId){ mutableStateOf(frameCache.get("${vm.api.userId}:$path")) }
     LaunchedEffect(path,vm.api.userId) {
         if(path.isBlank() || frame!=null)return@LaunchedEffect
         try {
-            val access=vm.api.mediaAccess(path)
+            val local=path.startsWith("content://")||path.startsWith("file://")
+            val access=if(local)null else vm.api.mediaAccess(path)
             val bitmap=withContext(Dispatchers.IO){
                 val retriever=MediaMetadataRetriever()
                 try {
-                    retriever.setDataSource(access.url,access.headers)
+                    if(local)retriever.setDataSource(context,Uri.parse(path)) else retriever.setDataSource(access!!.url,access.headers)
                     if(Build.VERSION.SDK_INT>=27)
                         retriever.getScaledFrameAtTime(1_000_000,MediaMetadataRetriever.OPTION_CLOSEST_SYNC,360,640)
                     else retriever.getFrameAtTime(1_000_000,MediaMetadataRetriever.OPTION_CLOSEST_SYNC)?.let {
