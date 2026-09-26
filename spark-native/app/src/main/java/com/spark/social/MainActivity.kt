@@ -199,6 +199,7 @@ class MainActivity:ComponentActivity() {
                     "Dashboard"->ProfileDashboard(vm)
                     "Content insights"->ContentInsightScreen(vm,vm.page.id)
                     "Badge requests"->BadgeRequestsScreen(vm)
+                    "Reports"->ModerationInbox(vm)
                     "About"->ProfileAboutScreen(vm,vm.page.id)
                     "Suggestions"->PeopleSuggestions(vm,fullPage=true)
                     "Search"->SearchScreen(vm)
@@ -1080,6 +1081,7 @@ fun ago(raw:String):String=runCatching {
         item {
             Person(vm,vm.me!!,"See your profile")
         }
+        item { ModerationMenuEntry(vm) }
         listOf(Triple("Friends",Icons.Outlined.People,"Your connections"),Triple("Chats",Icons.Outlined.Chat,"Conversations"),Triple("Groups",Icons.Outlined.Groups,"Find your community"),Triple("Pages",Icons.Outlined.Flag,"Creators and businesses"),Triple("Marketplace",Icons.Outlined.Storefront,"Buy and sell nearby"),Triple("Saved",Icons.Outlined.BookmarkBorder,"Posts for later"),Triple("Blocked",Icons.Outlined.Block,"Manage blocked accounts")).forEach {
             (name,icon,subtitle)->item {
                 Card(onClick= {
