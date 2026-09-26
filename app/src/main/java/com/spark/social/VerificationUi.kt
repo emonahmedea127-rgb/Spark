@@ -4,7 +4,12 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Verified
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
+import kotlin.math.cos
+import kotlin.math.sin
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -25,7 +30,29 @@ import org.json.JSONObject
     }
     Row(verticalAlignment=Alignment.CenterVertically,modifier=Modifier.padding(top=if(large)12.dp else 0.dp)){
         Text(person.s("display_name").ifBlank{"Spark member"},fontSize=if(large)28.sp else 16.sp,fontWeight=FontWeight.Bold)
-        if(verified)Icon(Icons.Filled.Verified,"Verified on Spark",Modifier.padding(start=5.dp).size(if(large)24.dp else 18.dp),tint=Blue)
+        if(verified)BlueVerificationBadge(Modifier.padding(start=5.dp).size(if(large)26.dp else 19.dp))
+    }
+}
+
+@Composable private fun BlueVerificationBadge(modifier:Modifier=Modifier) {
+    Canvas(modifier){
+        val cx=size.width/2f;val cy=size.height/2f
+        val badge=Path()
+        for(i in 0 until 24){
+            val angle=Math.PI*2*i/24-Math.PI/2
+            val radius=size.minDimension*(if(i%2==0).49f else .42f)
+            val x=cx+(cos(angle)*radius).toFloat()
+            val y=cy+(sin(angle)*radius).toFloat()
+            if(i==0)badge.moveTo(x,y) else badge.lineTo(x,y)
+        }
+        badge.close()
+        drawPath(badge,color=Color(0xFF1877F2))
+        val tick=Path().apply{
+            moveTo(size.width*.27f,size.height*.52f)
+            lineTo(size.width*.43f,size.height*.67f)
+            lineTo(size.width*.75f,size.height*.34f)
+        }
+        drawPath(tick,color=Color.White,style=Stroke(width=size.minDimension*.12f,cap=androidx.compose.ui.graphics.StrokeCap.Round,join=androidx.compose.ui.graphics.PathJoin.Round))
     }
 }
 
