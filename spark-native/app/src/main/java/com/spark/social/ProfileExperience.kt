@@ -173,16 +173,15 @@ suspend fun SparkApi.profilePeople(id:String,kind:String,offset:Int=0,size:Int=2
                 }
             }
             if(section=="Analytics") {
-                item { Text("Content",fontSize=23.sp,fontWeight=FontWeight.Bold) }
-                items(content,key={it.id()}){post->
-                    OutlinedCard(Modifier.fillMaxWidth().clickable{selected=post}){
-                        Column(Modifier.padding(16.dp)){
-                            Text(if(post.s("kind")=="reel")"Reel" else "Post",fontWeight=FontWeight.Bold,color=Blue)
-                            Text(post.s("body").ifBlank{"Media post"},maxLines=2)
-                            Text("Views ${post.optLong("views")}  ·  Reactions ${post.optLong("reactions")}  ·  Comments ${post.optLong("comments")}",color=MaterialTheme.colorScheme.onSurfaceVariant)
-                            if(post.s("kind")=="reel")Text("Plays ${post.optLong("plays")}  ·  Average view ${post.optDouble("avg_view_seconds")}s",color=MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
+                item {
+                    Row(Modifier.fillMaxWidth().clickable{section="Content"}.padding(top=8.dp),verticalAlignment=Alignment.CenterVertically) {
+                        Text("Content",fontSize=23.sp,fontWeight=FontWeight.Bold)
+                        Icon(Icons.Outlined.ChevronRight,"All content",Modifier.padding(start=6.dp),tint=MaterialTheme.colorScheme.onSurfaceVariant)
                     }
+                    Text("Latest post",color=MaterialTheme.colorScheme.onSurfaceVariant,modifier=Modifier.padding(top=4.dp))
+                }
+                if(!loading&&error==null)content.maxByOrNull{it.s("created_at")}?.let{post->
+                    item { LatestContentOverview(vm,post){selected=post} }
                 }
                 if(content.isEmpty()&&!loading&&error==null)item{Text("No posts or reels yet.")}
             }
@@ -198,6 +197,39 @@ suspend fun SparkApi.profilePeople(id:String,kind:String,offset:Int=0,size:Int=2
         }
     },confirmButton={TextButton(onClick={selected=null}){Text("Close")}})}
 }
+@Composable private fun LatestContentOverview(vm:SparkViewModel,post:JSONObject,onClick:()->Unit) {
+    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min),horizontalArrangement=Arrangement.spacedBy(12.dp)) {
+        OutlinedCard(Modifier.weight(1.06f).clickable(onClick=onClick),shape=RoundedCornerShape(14.dp)) {
+            Box(Modifier.fillMaxWidth().height(238.dp).background(MaterialTheme.colorScheme.surfaceVariant)) {
+                if(post.s("media_path").isNotBlank())PrivateImage(vm,post.s("media_path"),Modifier.fillMaxSize(),androidx.compose.ui.layout.ContentScale.Crop,videoFrame=post.s("media_type")=="video")
+                else Text(post.s("body"),Modifier.align(Alignment.Center).padding(14.dp),maxLines=8,textAlign=TextAlign.Center)
+                if(post.s("media_type")=="video")Surface(Modifier.align(Alignment.BottomStart).padding(8.dp),shape=RoundedCornerShape(6.dp),color=androidx.compose.ui.graphics.Color.Black.copy(alpha=.6f)) {
+                    Icon(Icons.Outlined.Movie,"Video",Modifier.padding(4.dp).size(20.dp),tint=androidx.compose.ui.graphics.Color.White)
+                }
+            }
+            Column(Modifier.padding(10.dp)) {
+                if(post.s("media_path").isNotBlank()&&post.s("body").isNotBlank())Text(post.s("body"),maxLines=2,overflow=TextOverflow.Ellipsis,fontSize=14.sp)
+                Text(ago(post.s("created_at")),color=MaterialTheme.colorScheme.onSurfaceVariant,fontSize=12.sp,modifier=Modifier.padding(top=4.dp))
+            }
+        }
+        Column(Modifier.weight(1f).fillMaxHeight(),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+            LatestContentMetric("Views",post.optLong("views").toString(),Modifier.weight(1f),onClick=onClick)
+            LatestContentMetric("Earnings","—",Modifier.weight(1f),"Not enabled",onClick)
+            LatestContentMetric("Engagement",(post.optLong("reactions")+post.optLong("comments")).toString(),Modifier.weight(1f),onClick=onClick)
+            LatestContentMetric("Net follows","—",Modifier.weight(1f),"Not tracked",onClick)
+        }
+    }
+}
+@Composable private fun LatestContentMetric(label:String,value:String,modifier:Modifier,note:String?=null,onClick:()->Unit) {
+    Surface(modifier.fillMaxWidth().clickable(onClick=onClick),shape=RoundedCornerShape(14.dp),color=MaterialTheme.colorScheme.surfaceContainerLow) {
+        Column(Modifier.padding(horizontal=12.dp,vertical=10.dp),verticalArrangement=Arrangement.Center) {
+            Text(label,fontSize=13.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(value,fontWeight=FontWeight.Bold,fontSize=18.sp)
+            if(note!=null)Text(note,fontSize=10.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
 @Composable private fun DashboardMetric(label:String,count:Long,modifier:Modifier=Modifier){
     OutlinedCard(modifier){Column(Modifier.padding(16.dp)){Text(label,color=MaterialTheme.colorScheme.onSurfaceVariant);Text(count.toString(),fontSize=25.sp,fontWeight=FontWeight.Bold)}}
 }
