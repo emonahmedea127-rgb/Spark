@@ -2,7 +2,7 @@ name: Build Spark Android
 on:
   workflow_dispatch:
   push:
-    branches: ["codex/spark-native-apk"]
+    branches: ["codex/spark-native-apk", "codex/spark-analytics-badges-calls"]
 permissions:
   contents: read
 jobs:

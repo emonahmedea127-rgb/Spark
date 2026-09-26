@@ -1,6 +1,7 @@
 package com.spark.social
 
 import android.content.Context
+import android.os.SystemClock
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -44,6 +45,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -64,19 +66,18 @@ import coil.request.CachePolicy
 import coil.request.ImageRequest
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import org.json.JSONObject
 
 data class MediaAccess(val url:String,val headers:Map<String,String>)
+private class ReelWatchCounter(var watchedMs:Long=0)
 
 @Composable fun PrivateImage(
     vm:SparkViewModel,path:String,modifier:Modifier=Modifier,
     contentScale:ContentScale=ContentScale.Crop,videoFrame:Boolean=false,onReady:()->Unit={},targetPx:Int=960,onRatio:(Float)->Unit={}
 ) {
-    // Never download an entire video just to draw a scrolling thumbnail.
     if(videoFrame) {
-        Box(modifier.background(Color(0xFF20242B)),contentAlignment=Alignment.Center) {
-            Icon(Icons.Outlined.PlayCircle,"Video",tint=Color.White.copy(alpha=.7f),modifier=Modifier.size(40.dp))
-        };return
+        VideoThumbnail(vm,path,modifier);return
     }
     var bytes by remember(path,vm.api.userId) { mutableStateOf<ByteArray?>(null) }
     var failed by remember(path) { mutableStateOf(false) }
@@ -196,7 +197,7 @@ internal fun createSparkPlayer(context:Context,access:MediaAccess):ExoPlayer {
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable fun SparkVideo(
     vm:SparkViewModel,path:String,modifier:Modifier=Modifier,
-    onProgress:(Float)->Unit={},onEnded:()->Unit={},paused:Boolean=false,loop:Boolean=false,controls:Boolean=true
+    onProgress:(Float)->Unit={},onEnded:()->Unit={},paused:Boolean=false,loop:Boolean=false,controls:Boolean=true,reelId:String=""
 ) {
     var access by remember(path) { mutableStateOf<MediaAccess?>(null) }
     var error by remember(path) { mutableStateOf<String?>(null) }
@@ -216,10 +217,20 @@ internal fun createSparkPlayer(context:Context,access:MediaAccess):ExoPlayer {
             val context=LocalContext.current
             val lifecycle=LocalLifecycleOwner.current.lifecycle
             val player=remember(source,attempt) { createSparkPlayer(context,source) }
+            val watch=remember(player){ReelWatchCounter()}
             var buffering by remember(player) { mutableStateOf(true) }
             var wasPlaying by remember(player) { mutableStateOf(true) }
             val pauseNow by rememberUpdatedState(paused)
             DisposableEffect(player,lifecycle) {
+                fun submitWatch(){
+                    val watched=watch.watchedMs.coerceAtMost(14_400_000).toInt()
+                    val duration=player.duration.coerceAtMost(14_400_000).toInt()
+                    watch.watchedMs=0
+                    if(reelId.isNotBlank()&&watched>=1000&&duration>=1000)vm.viewModelScope.launch {
+                        try { vm.api.request("/rest/v1/rpc/sparknew_record_reel_playback","POST",json("content_id" to reelId,"played_ms" to watched,"media_ms" to duration)) }
+                        catch(e:CancellationException){throw e}catch(_:Exception){}
+                    }
+                }
                 val listener=object:Player.Listener {
                     override fun onPlaybackStateChanged(state:Int) {
                         buffering=state==Player.STATE_BUFFERING
@@ -236,7 +247,7 @@ internal fun createSparkPlayer(context:Context,access:MediaAccess):ExoPlayer {
                     }
                 }
                 val observer=LifecycleEventObserver { _,event ->
-                    if(event==Lifecycle.Event.ON_STOP) { wasPlaying=player.playWhenReady;player.pause() }
+                    if(event==Lifecycle.Event.ON_STOP) { wasPlaying=player.playWhenReady;player.pause();submitWatch() }
                     if(event==Lifecycle.Event.ON_START&&wasPlaying&&!pauseNow)player.play()
                 }
                 player.addListener(listener);lifecycle.addObserver(observer)
@@ -244,15 +255,20 @@ internal fun createSparkPlayer(context:Context,access:MediaAccess):ExoPlayer {
                 player.seekTo(resumeAt);player.prepare()
                 player.playWhenReady=!paused&&lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
                 onDispose {
+                    submitWatch()
                     resumeAt=player.currentPosition
                     lifecycle.removeObserver(observer);player.removeListener(listener);player.release()
                 }
             }
             LaunchedEffect(paused,player) { if(paused)player.pause() else if(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))player.play() }
             LaunchedEffect(player) {
+                var last=SystemClock.elapsedRealtime()
                 while(true) {
+                    val now=SystemClock.elapsedRealtime()
+                    if(player.isPlaying)watch.watchedMs+=(now-last).coerceIn(0,1000)
+                    last=now
                     if(player.duration>0)progress((player.currentPosition.toFloat()/player.duration).coerceIn(0f,1f))
-                    delay(100)
+                    delay(500)
                 }
             }
             AndroidView(factory={ctx->PlayerView(ctx).apply {
@@ -302,7 +318,10 @@ internal fun createSparkPlayer(context:Context,access:MediaAccess):ExoPlayer {
                 itemsIndexed(stories,key={_,s->s.id()}) { index,story ->
                     Card(onClick={selected=index},modifier=Modifier.width(116.dp).height(208.dp),shape=RoundedCornerShape(14.dp)) {
                         Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(Color(0xFF6766D8),Color(0xFF24265F))))) {
-                            if(story.s("media_path").isNotBlank())PrivateImage(vm,story.s("media_path"),Modifier.fillMaxSize(),videoFrame=story.s("media_type")=="video",targetPx=384)
+                            if(story.s("media_path").isNotBlank()) {
+                                if(story.s("media_type")=="video")VideoThumbnail(vm,story.s("media_path"),Modifier.fillMaxSize())
+                                else PrivateImage(vm,story.s("media_path"),Modifier.fillMaxSize(),targetPx=384)
+                            }
                             else Text(story.s("body"),Modifier.padding(top=60.dp,start=10.dp,end=10.dp),color=Color.White,maxLines=3,fontSize=13.sp)
                             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent,Color.Black.copy(alpha=.7f)))))
                             Column(Modifier.fillMaxSize().padding(10.dp),verticalArrangement=Arrangement.SpaceBetween) {
@@ -319,66 +338,3 @@ internal fun createSparkPlayer(context:Context,access:MediaAccess):ExoPlayer {
     if(create)ComposeDialog(vm,"story") { create=false }
 }
 
-@Composable fun StoryDialog(vm:SparkViewModel,stories:List<JSONObject>,initial:Int,onClose:()->Unit) {
-    var index by remember { mutableIntStateOf(initial) }
-    if(index !in stories.indices) { LaunchedEffect(Unit) { onClose() };return }
-    val story=stories[index]
-    val next:()->Unit={if(index<stories.lastIndex)index++ else onClose()}
-    var confirmDelete by remember { mutableStateOf(false) }
-    var paused by remember { mutableStateOf(false) }
-    var reply by remember { mutableStateOf("") }
-    FullscreenMedia(onClose) {
-        key(story.id()) {
-            var progress by remember { mutableFloatStateOf(0f) }
-            var ready by remember { mutableStateOf(story.s("media_path").isBlank()) }
-            val lifecycle=LocalLifecycleOwner.current.lifecycle
-            var active by remember { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) }
-            DisposableEffect(lifecycle) {
-                val observer=LifecycleEventObserver { _,_ -> active=lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED) }
-                lifecycle.addObserver(observer);onDispose { lifecycle.removeObserver(observer) }
-            }
-            val video=story.s("media_type")=="video"&&story.s("media_path").isNotBlank()
-            LaunchedEffect(ready,paused,confirmDelete,active,reply) {
-                if(ready&&!video&&!paused&&!confirmDelete&&active&&reply.isBlank()) {
-                    while(progress<1f) { delay(50);progress=(progress+.00625f).coerceAtMost(1f) }
-                    next()
-                }
-            }
-            Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(Color(0xFF302B80),Color(0xFF111328))))) {
-                if(video)SparkVideo(vm,story.s("media_path"),Modifier.fillMaxSize().padding(top=100.dp,bottom=120.dp),onProgress={progress=it},onEnded=next,paused=paused||confirmDelete||reply.isNotBlank())
-                else if(story.s("media_path").isNotBlank())PrivateImage(vm,story.s("media_path"),Modifier.fillMaxSize(),ContentScale.Fit,onReady={ready=true},targetPx=1600)
-                else Text(story.s("body"),Modifier.align(Alignment.Center).padding(32.dp),fontSize=30.sp,fontWeight=FontWeight.SemiBold,textAlign=TextAlign.Center,color=Color.White)
-                Column(Modifier.fillMaxWidth().align(Alignment.TopCenter).background(Brush.verticalGradient(listOf(Color.Black.copy(alpha=.75f),Color.Transparent))).statusBarsPadding().padding(12.dp)) {
-                    Row(horizontalArrangement=Arrangement.spacedBy(4.dp)) {
-                        stories.forEachIndexed { i,_ -> LinearProgressIndicator(progress={when { i<index->1f;i==index->progress;else->0f }},modifier=Modifier.weight(1f).height(3.dp),color=Color.White,trackColor=Color.White.copy(alpha=.25f)) }
-                    }
-                    Row(Modifier.padding(top=12.dp),verticalAlignment=Alignment.CenterVertically) {
-                        Avatar(vm,story.child("author"),36)
-                        Column(Modifier.weight(1f).padding(start=10.dp)) {
-                            Text(story.child("author").s("display_name"),color=Color.White,fontWeight=FontWeight.Bold)
-                            Text(ago(story.s("created_at")),color=Color.White.copy(alpha=.7f),fontSize=12.sp)
-                        }
-                        IconButton(onClick={paused=!paused}) { Icon(if(paused)Icons.Outlined.PlayArrow else Icons.Outlined.Pause,if(paused)"Resume story" else "Pause story",tint=Color.White) }
-                        IconButton(onClick=onClose) { Icon(Icons.Outlined.Close,"Close story",tint=Color.White) }
-                    }
-                }
-                Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Brush.verticalGradient(listOf(Color.Transparent,Color.Black.copy(alpha=.8f)))).navigationBarsPadding().imePadding().padding(12.dp)) {
-                    if(story.s("media_path").isNotBlank()&&story.s("body").isNotBlank())Text(story.s("body"),color=Color.White,maxLines=4,modifier=Modifier.padding(bottom=12.dp))
-                    if(story.s("author_id")!=vm.api.userId)Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
-                        OutlinedTextField(value=reply,onValueChange={reply=it},placeholder={Text("Send message…",color=Color.LightGray)},singleLine=true,shape=CircleShape,modifier=Modifier.weight(1f),colors=OutlinedTextFieldDefaults.colors(focusedTextColor=Color.White,unfocusedTextColor=Color.White,focusedBorderColor=Color.White,unfocusedBorderColor=Color.Gray))
-                        IconButton(enabled=vm.tasks==0,onClick={vm.work { val chat=vm.api.conversation(story.s("author_id"));vm.api.send(chat.id(),reply.ifBlank { "❤️" },null);reply="";vm.notice="Story reply sent." }}) { Icon(if(reply.isBlank())Icons.Outlined.Favorite else Icons.AutoMirrored.Outlined.Send,"Send story reply",tint=Color.White) }
-                    }
-                    Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween) {
-                        IconButton(onClick={if(index>0)index--},enabled=index>0) { Icon(Icons.AutoMirrored.Outlined.KeyboardArrowLeft,"Previous story",tint=Color.White.copy(alpha=if(index>0)1f else .3f)) }
-                        if(story.s("author_id")==vm.api.userId)IconButton(onClick={confirmDelete=true}) { Icon(Icons.Outlined.DeleteOutline,"Delete story",tint=Color.White) }
-                        Text("${index+1} / ${stories.size}",color=Color.White,fontSize=12.sp)
-                        IconButton(onClick=next) { Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight,"Next story",tint=Color.White) }
-                    }
-                }
-            }
-        }
-        if(confirmDelete)AlertDialog(onDismissRequest={confirmDelete=false},title={Text("Delete this story?")},text={Text("This story will be removed from Spark.")},confirmButton={TextButton(onClick={
-            vm.work { vm.api.delete("posts","id=eq.${story.id()}");confirmDelete=false;onClose();vm.refresh() }
-        }) { Text("Delete") }},dismissButton={TextButton(onClick={confirmDelete=false}) { Text("Cancel") }})
-    }
-}
