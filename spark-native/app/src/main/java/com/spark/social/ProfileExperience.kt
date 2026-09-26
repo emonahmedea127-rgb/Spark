@@ -85,6 +85,17 @@ suspend fun SparkApi.profilePeople(id:String,kind:String,offset:Int=0,size:Int=2
         }
     }
 }
+@Composable fun ProfileMutualFriends(vm:SparkViewModel,id:String) {
+    Rows(vm,"mutual:$id",{
+        val mine=vm.api.profilePeople(vm.api.userId,"friends",size=100).map{it.id()}.toSet()
+        vm.api.profilePeople(id,"friends",size=100).filter{it.id() in mine}.take(4)
+    }){mutual->
+        if(mutual.isNotEmpty())Row(Modifier.fillMaxWidth().padding(horizontal=20.dp,vertical=12.dp),verticalAlignment=Alignment.CenterVertically){
+            mutual.take(3).forEach{person->Avatar(vm,person,33){vm.go("Profile",person.id())};Spacer(Modifier.width(2.dp))}
+            Text("Followed by ${mutual.take(2).joinToString(", "){it.s("display_name")}}${if(mutual.size>2)" and others" else ""}",Modifier.padding(start=7.dp),fontSize=13.sp,maxLines=2)
+        }
+    }
+}
 @Composable fun ProfileConnectionsScreen(vm:SparkViewModel,id:String,initialKind:String) {
     var kind by rememberSaveable(id){mutableStateOf(initialKind.ifBlank{"followers"})}
     var people by remember(id,kind){mutableStateOf<List<JSONObject>>(emptyList())}
@@ -190,7 +201,8 @@ suspend fun SparkApi.profilePeople(id:String,kind:String,offset:Int=0,size:Int=2
     OutlinedCard(modifier){Column(Modifier.padding(16.dp)){Text(label,color=MaterialTheme.colorScheme.onSurfaceVariant);Text(count.toString(),fontSize=25.sp,fontWeight=FontWeight.Bold)}}
 }
 
-@Composable fun ProfileHero(vm:SparkViewModel,profile:JSONObject,own:Boolean,category:String,counts:JSONObject,onPhoto:(String)->Unit,onChangePhoto:(String)->Unit,onStory:()->Unit,onPosts:()->Unit) {
+@Composable fun ProfileHero(vm:SparkViewModel,profile:JSONObject,own:Boolean,category:String,counts:JSONObject,onPhoto:(String)->Unit,onChangePhoto:(String)->Unit,onStory:()->Unit,onPosts:()->Unit,onBlock:()->Unit={},onReport:()->Unit={}) {
+    var actionsOpen by remember { mutableStateOf(false) }
     Surface {
         Column {
             Box(Modifier.fillMaxWidth().height(318.dp)) {
@@ -203,6 +215,14 @@ suspend fun SparkApi.profilePeople(id:String,kind:String,offset:Int=0,size:Int=2
                         if(own)IconButton(onClick={vm.go("Edit profile")}){Icon(Icons.Outlined.Edit,"Edit profile",tint=androidx.compose.ui.graphics.Color.White)}
                         IconButton(onClick={vm.go("Search")}){Icon(Icons.Outlined.Search,"Search",tint=androidx.compose.ui.graphics.Color.White)}
                         if(own)IconButton(onClick={vm.go("Profile settings")}){Icon(Icons.Outlined.MoreHoriz,"Profile settings",tint=androidx.compose.ui.graphics.Color.White)}
+                        else Box {
+                            IconButton(onClick={actionsOpen=true}){Icon(Icons.Outlined.MoreHoriz,"Profile options",tint=androidx.compose.ui.graphics.Color.White)}
+                            DropdownMenu(expanded=actionsOpen,onDismissRequest={actionsOpen=false}) {
+                                DropdownMenuItem(text={Text("About")},onClick={actionsOpen=false;vm.go("About",profile.id())})
+                                DropdownMenuItem(text={Text("Block")},onClick={actionsOpen=false;onBlock()})
+                                DropdownMenuItem(text={Text("Report")},onClick={actionsOpen=false;onReport()})
+                            }
+                        }
                     }
                     if(own)IconButton(onClick={onChangePhoto("cover_path")},modifier=Modifier.align(Alignment.BottomEnd).padding(end=12.dp,bottom=26.dp).background(MaterialTheme.colorScheme.surface,CircleShape)){Icon(Icons.Outlined.PhotoCamera,"Change cover photo")}
                 }

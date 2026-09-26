@@ -796,27 +796,32 @@ fun ago(raw:String):String=runCatching {
                             ProfileHero(vm,p,own,counts.s("category"),counts,onPhoto={field->
                                 if(p.s(field).isNotBlank())previewPhoto=p.s(field)
                                 else if(own){photoField=field;pick.launch("image/*")}
-                            },onChangePhoto={field->photoField=field;pick.launch("image/*")},onStory={newStory=true},onPosts={profileFilter="All";profileScope.launch{withFrameNanos{};listState.animateScrollToItem(if(own)5 else 7)}})
+                            },onChangePhoto={field->photoField=field;pick.launch("image/*")},onStory={newStory=true},onPosts={profileFilter="All";profileScope.launch{withFrameNanos{};listState.animateScrollToItem(if(own)5 else 6)}},onBlock={block=true},onReport={report=true})
                         }
                     }
+                    if(!own)item { ProfileMutualFriends(vm,id) }
                     if(!own)item {
                         Rows(vm,"relationship:$id", {
                             vm.api.rows("friendships","or=(and(sender_id.eq.${vm.api.userId},receiver_id.eq.$id),and(sender_id.eq.$id,receiver_id.eq.${vm.api.userId}))")
                         }) {
                             fs->val f=fs.firstOrNull()
                             Row(Modifier.fillMaxWidth().padding(horizontal=16.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                                Button(enabled=vm.tasks==0,onClick= {
+                                Button(enabled=vm.tasks==0,modifier=Modifier.weight(1f),shape=RoundedCornerShape(8.dp),onClick= {
                                     vm.work {
                                         if(f==null)vm.api.insert("friendships",json("sender_id" to vm.api.userId,"receiver_id" to id))else if(f.s("status")=="pending"&&f.s("receiver_id")==vm.api.userId)vm.api.update("friendships","id=eq.${f.id()}",json("status" to "accepted"))else vm.api.delete("friendships","id=eq.${f.id()}")
                                         vm.refresh()
                                     }
                                 }) {
+                                    Icon(Icons.Outlined.PersonAdd,null,Modifier.size(18.dp))
                                     Text(when {
-                                        f==null->"Add friend"
-                                        f.s("status")=="accepted"->"Unfriend"
-                                        f.s("receiver_id")==vm.api.userId->"Accept request"
-                                        else->"Cancel request"
+                                        f==null->" Add friend"
+                                        f.s("status")=="accepted"->" Unfriend"
+                                        f.s("receiver_id")==vm.api.userId->" Accept request"
+                                        else->" Cancel request"
                                     })
+                                }
+                                FilledTonalButton(onClick={vm.work{val c=vm.api.conversation(id);vm.go("Chat",c.id(),p.s("display_name"))}},modifier=Modifier.weight(1f),shape=RoundedCornerShape(8.dp)){
+                                    Icon(Icons.Outlined.ChatBubbleOutline,null,Modifier.size(18.dp));Text(" Message")
                                 }
                             }
                             if(f==null)Rows(vm,"manual-follow:$id",{vm.api.rows("follows","follower_id=eq.${vm.api.userId}&following_id=eq.$id")}) {existing->
@@ -825,14 +830,6 @@ fun ago(raw:String):String=runCatching {
                                     vm.refresh()
                                 }},modifier=Modifier.padding(horizontal=16.dp)){Text(if(existing.isEmpty())"Follow" else "Unfollow")}
                             }
-
-                        }
-                    }
-                    if(!own)item {
-                        Row(Modifier.fillMaxWidth().padding(horizontal=16.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                            Button(onClick={vm.work{val c=vm.api.conversation(id);vm.go("Chat",c.id(),p.s("display_name"))}},modifier=Modifier.weight(1f)){Text("Message")}
-                            TextButton(onClick={block=true}){Text("Block")}
-                            TextButton(onClick={report=true}){Text("Report")}
                         }
                     }
                     item {
@@ -854,9 +851,20 @@ fun ago(raw:String):String=runCatching {
                             }
                         }
                     }
-                    items(posts.filter { profileFilter=="All" || (profileFilter=="Reels"&&it.s("media_type")=="video") || (profileFilter=="Photos"&&it.s("media_type")=="image") },key= {
-                        it.id()
-                    }) {
+                    if(profileFilter=="Reels") {
+                        val reels=posts.filter{it.s("kind")=="reel"&&it.s("media_type")=="video"}
+                        items(reels.chunked(3),key={row->row.first().id()}){row->
+                            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(2.dp)) {
+                                row.forEach { reel->
+                                    Box(Modifier.weight(1f).aspectRatio(.72f).clickable{vm.go("Reels",reel.id())}) {
+                                        VideoThumbnail(vm,reel.s("media_path"),Modifier.fillMaxSize())
+                                        Icon(Icons.Outlined.SmartDisplay,"Reel",Modifier.align(Alignment.TopEnd).padding(8.dp),tint=Color.White)
+                                    }
+                                }
+                                repeat(3-row.size){Spacer(Modifier.weight(1f))}
+                            }
+                        }
+                    } else items(posts.filter { profileFilter=="All" || (profileFilter=="Photos"&&it.s("media_type")=="image") },key={it.id()}) {
                         PostCard(vm,it)
                     }
                     if(posts.size==postLimit)item {TextButton(onClick={postLimit+=40},modifier=Modifier.fillMaxWidth()){Text("Load more posts")}}

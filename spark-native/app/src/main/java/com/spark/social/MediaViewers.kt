@@ -302,7 +302,10 @@ internal fun createSparkPlayer(context:Context,access:MediaAccess):ExoPlayer {
                 itemsIndexed(stories,key={_,s->s.id()}) { index,story ->
                     Card(onClick={selected=index},modifier=Modifier.width(116.dp).height(208.dp),shape=RoundedCornerShape(14.dp)) {
                         Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(Color(0xFF6766D8),Color(0xFF24265F))))) {
-                            if(story.s("media_path").isNotBlank())PrivateImage(vm,story.s("media_path"),Modifier.fillMaxSize(),videoFrame=story.s("media_type")=="video",targetPx=384)
+                            if(story.s("media_path").isNotBlank()) {
+                                if(story.s("media_type")=="video")VideoThumbnail(vm,story.s("media_path"),Modifier.fillMaxSize())
+                                else PrivateImage(vm,story.s("media_path"),Modifier.fillMaxSize(),targetPx=384)
+                            }
                             else Text(story.s("body"),Modifier.padding(top=60.dp,start=10.dp,end=10.dp),color=Color.White,maxLines=3,fontSize=13.sp)
                             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent,Color.Black.copy(alpha=.7f)))))
                             Column(Modifier.fillMaxSize().padding(10.dp),verticalArrangement=Arrangement.SpaceBetween) {
