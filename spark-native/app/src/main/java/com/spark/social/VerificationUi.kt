@@ -52,7 +52,7 @@ import org.json.JSONObject
             lineTo(size.width*.43f,size.height*.67f)
             lineTo(size.width*.75f,size.height*.34f)
         }
-        drawPath(tick,color=Color.White,style=Stroke(width=size.minDimension*.12f,cap=androidx.compose.ui.graphics.StrokeCap.Round,join=androidx.compose.ui.graphics.PathJoin.Round))
+        drawPath(tick,color=Color.White,style=Stroke(width=size.minDimension*.12f,cap=androidx.compose.ui.graphics.StrokeCap.Round,join=androidx.compose.ui.graphics.StrokeJoin.Round))
     }
 }
 
