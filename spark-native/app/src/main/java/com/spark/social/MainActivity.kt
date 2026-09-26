@@ -71,7 +71,7 @@ class SparkViewModel(app:Application):AndroidViewModel(app) {
     private val soundPrefs=app.getSharedPreferences("spark.sounds",Context.MODE_PRIVATE)
     var soundsEnabled by mutableStateOf(soundPrefs.getBoolean("enabled",true))
         private set
-    fun setSoundsEnabled(value:Boolean){soundsEnabled=value;soundPrefs.edit().putBoolean("enabled",value).apply()}
+    fun updateSoundsEnabled(value:Boolean){soundsEnabled=value;soundPrefs.edit().putBoolean("enabled",value).apply()}
     fun sound(event:SparkSounds.Event){SparkSounds.play(getApplication(),event,soundsEnabled)}
     fun lastHomeSeen():String {
         val key="seen:${api.userId}"
@@ -1149,7 +1149,7 @@ fun ago(raw:String):String=runCatching {
         item {
             Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
                 Text("App sounds",modifier=Modifier.weight(1f))
-                Switch(checked=vm.soundsEnabled,onCheckedChange=vm::setSoundsEnabled)
+                Switch(checked=vm.soundsEnabled,onCheckedChange=vm::updateSoundsEnabled)
             }
         }
         item {
