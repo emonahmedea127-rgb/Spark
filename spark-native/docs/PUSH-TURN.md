@@ -1,10 +1,10 @@
 # Push and TURN setup — Spark 1.20
 
-Integration code is present. Delivery and relay are **not active** without owner configuration. Existing foreground inbox polling and direct WebRTC remain available. This build does not contain a Firebase project configuration.
+Integration code is present. Delivery and relay are **not active** without owner configuration. Existing foreground inbox polling and direct WebRTC remain available. Firebase client configuration now uses the owner's existing no-cost project `helloworld-d72dc`, Android registration `Spark Native` (`com.spark.social`). FCM HTTP v1 is enabled. Server credentials and dispatch activation are still pending.
 
 ## Android push
 
-1. In the owner's Firebase project, register Android package `com.spark.social`. Download its `google-services.json` to `spark-native/app/google-services.json`, then rebuild. This client configuration is not a service-account private key.
+1. Completed: registered `com.spark.social` in the existing Spark Firebase project and added `app/google-services.json`. This client configuration is not a service-account private key.
 2. Enable Firebase Cloud Messaging HTTP v1. Store a Firebase service account JSON in Supabase Edge Function secret `FIREBASE_SERVICE_ACCOUNT_JSON`. Never commit or send a service account private key in chat.
 3. Generate a random secret of at least 32 characters. Store it as Edge secret `SPARK_PUSH_WEBHOOK_SECRET` and Supabase Vault secret `spark_push_webhook_secret` (same value).
 4. Apply `backend/activate-push.sql` using a privileged database connection **after** configuration. It enables a queue insert hook and one-minute retry schedule. No schedule has been activated by this change. Disable with `select cron.unschedule('spark-push-retry');` and remove the Vault secret to disable immediate dispatch.
