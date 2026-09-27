@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -52,6 +53,10 @@ import java.io.File
     val own=story.s("author_id")==vm.api.userId
     val video=story.s("media_type")=="video"&&story.s("media_path").isNotBlank()
     val context=LocalContext.current
+    var held by remember { mutableStateOf(false) }
+    var recorded by remember { mutableStateOf(false) }
+    var viewerRetry by remember { mutableIntStateOf(0) }
+    var viewersLoading by remember { mutableStateOf(true) }
     var paused by remember { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
     var viewersOpen by remember { mutableStateOf(false) }
@@ -71,22 +76,28 @@ import java.io.File
     var progress by remember { mutableFloatStateOf(0f) }
     var ready by remember { mutableStateOf(story.s("media_path").isBlank()) }
     val lifecycle=LocalLifecycleOwner.current.lifecycle
-    var active by remember { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) }
+    var active by remember { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) }
     DisposableEffect(lifecycle) {
-        val observer=LifecycleEventObserver{_,_->active=lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)}
+        val observer=LifecycleEventObserver{_,_->active=lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)}
         lifecycle.addObserver(observer);onDispose{lifecycle.removeObserver(observer)}
     }
-    val stopped=paused||menu||viewersOpen||confirmDelete||compose||publishKind.isNotBlank()||reply.isNotBlank()||busy||pendingReactions>0||!active
-    LaunchedEffect(active) {
-        if(!active)return@LaunchedEffect
-        if(!own)runCatching{vm.api.request("/rest/v1/rpc/sparknew_record_view","POST",json("content_id" to story.id()))}
-        else while(true) {
-            runCatching {
+    val stopped=held||paused||menu||viewersOpen||confirmDelete||compose||publishKind.isNotBlank()||reply.isNotBlank()||busy||pendingReactions>0||!active
+    LaunchedEffect(active,ready) {
+        if(active&&ready&&!own&&!recorded) {
+            try { vm.api.request("/rest/v1/rpc/sparknew_record_view","POST",json("content_id" to story.id()));recorded=true }
+            catch(e:CancellationException){throw e}catch(_:Exception){}
+        }
+    }
+    LaunchedEffect(active,viewerRetry) {
+        if(!active||!own)return@LaunchedEffect
+        while(true) {
+            viewersLoading=true
+            try {
                 val rows=vm.api.rows("post_views","select=viewer_id,viewer:sparknew_profiles!viewer_id(*)&post_id=eq.${story.id()}&order=viewed_on.desc")
                 val likes=vm.api.rows("reactions","post_id=eq.${story.id()}")
                 val totals=JSONArray(vm.api.request("/rest/v1/rpc/sparknew_story_reaction_totals","POST",json("content_id" to story.id()))).rows()
                 viewers=rows.distinctBy{it.s("viewer_id")};reactions=likes;reactionTotals=totals;viewerError=false
-            }.onFailure{viewerError=true}
+            }catch(e:CancellationException){throw e}catch(_:Exception){viewerError=true}finally{viewersLoading=false}
             delay(10000)
         }
     }
@@ -94,10 +105,10 @@ import java.io.File
         if(ready&&!video&&!stopped){while(progress<1f){delay(50);progress=(progress+.00625f).coerceAtMost(1f)};next()}
     }
     LaunchedEffect(feedback){if(feedback.isNotBlank()){delay(2500);feedback=""}}
-    fun send(text:String) {
+    fun send(text:String,clearDraft:Boolean=false) {
         if(busy||text.isBlank())return
         busy=true
-        vm.work { try { val chat=vm.api.conversation(story.s("author_id"));vm.api.send(chat.id(),"Reply to your story${story.s("body").take(100).let{if(it.isBlank())"" else ": $it"}}\n$text",null);reply="";feedback="Reply sent" }finally{busy=false} }
+        vm.work { try { val chat=vm.api.conversation(story.s("author_id"));vm.api.send(chat.id(),"Reply to your story${story.s("body").take(100).let{if(it.isBlank())"" else ": $it"}}\n$text",null);if(clearDraft&&reply==text)reply="";feedback="Reply sent" }finally{busy=false} }
     }
     fun react(value:String) {
         if(pendingReactions>=30)return
@@ -129,12 +140,12 @@ import java.io.File
         }finally{busy=false} }
     }
     Box(Modifier.fillMaxSize().background(Color.Black)) {
-        if(video)SparkVideo(vm,story.s("media_path"),Modifier.fillMaxSize().padding(top=90.dp,bottom=110.dp),onProgress={progress=it},onEnded=next,paused=stopped)
+        if(video)SparkVideo(vm,story.s("media_path"),Modifier.fillMaxSize().padding(top=90.dp,bottom=110.dp),onProgress={progress=it},onEnded=next,paused=stopped,onReady={ready=true})
         else if(story.s("media_path").isNotBlank())PrivateImage(vm,story.s("media_path"),Modifier.fillMaxSize().padding(bottom=90.dp),ContentScale.Fit,onReady={ready=true},targetPx=1600)
         else Text(story.s("body"),Modifier.align(Alignment.Center).padding(32.dp),color=Color.White,fontSize=30.sp,textAlign=TextAlign.Center)
         // Behind controls: taps on media navigate without stealing reply/reaction clicks.
         Box(Modifier.fillMaxSize().pointerInput(index,total) {
-            detectTapGestures(onTap={position->if(position.x<size.width/2f)previous() else next()})
+            detectTapGestures(onLongPress={},onPress={held=true;try{tryAwaitRelease()}finally{held=false}},onTap={position->if(position.x<size.width/2f)previous() else next()})
         })
         bursts.forEach { burst->key(burst.id) { FloatingStoryEmoji(burst,Modifier.align(Alignment.BottomEnd).padding(end=40.dp,bottom=160.dp)){bursts.remove(burst)} } }
         Column(Modifier.align(Alignment.TopCenter).fillMaxWidth().background(Brush.verticalGradient(listOf(Color.Black.copy(alpha=.8f),Color.Transparent))).statusBarsPadding().padding(12.dp)) {
@@ -161,9 +172,9 @@ import java.io.File
             if(feedback.isNotBlank())Text(feedback,color=Color.White,modifier=Modifier.align(Alignment.CenterHorizontally).padding(8.dp))
             if(story.s("media_path").isNotBlank()&&story.s("body").isNotBlank())Text(story.s("body"),color=Color.White,maxLines=3,modifier=Modifier.padding(bottom=8.dp))
             if(own) {
-                Row(Modifier.fillMaxWidth().clickable{viewersOpen=true}.padding(vertical=12.dp),verticalAlignment=Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth().clickable{viewersOpen=true;if(viewerError)viewerRetry++}.padding(vertical=12.dp),verticalAlignment=Alignment.CenterVertically) {
                     Icon(Icons.Outlined.KeyboardArrowUp,"View viewers",tint=Color.White)
-                    Text(if(viewerError)"Viewers unavailable · Tap to retry" else "${viewers.size} viewers",color=Color.White,fontWeight=FontWeight.Bold)
+                    Text(if(viewersLoading&&viewers.isEmpty())"Loading viewers…" else if(viewerError)"Viewers unavailable · Tap to retry" else "${viewers.size} viewers",color=Color.White,fontWeight=FontWeight.Bold)
                     Spacer(Modifier.weight(1f));viewers.take(3).forEach{Avatar(vm,it.child("viewer"),28)}
                 }
                 Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceEvenly) {
@@ -177,7 +188,7 @@ import java.io.File
                 }
                 Row(verticalAlignment=Alignment.CenterVertically) {
                     OutlinedTextField(reply,{reply=it},placeholder={Text("Send message…",color=Color.LightGray)},singleLine=true,shape=CircleShape,modifier=Modifier.weight(1f),colors=OutlinedTextFieldDefaults.colors(focusedTextColor=Color.White,unfocusedTextColor=Color.White,unfocusedContainerColor=Color.DarkGray,focusedContainerColor=Color.DarkGray))
-                    if(reply.isNotBlank())IconButton(enabled=!busy,onClick={send(reply)}){Icon(Icons.AutoMirrored.Outlined.Send,"Send reply",tint=Color.White)}
+                    if(reply.isNotBlank())IconButton(enabled=!busy,onClick={send(reply,true)}){Icon(Icons.AutoMirrored.Outlined.Send,"Send reply",tint=Color.White)}
 
                 }
                 Row(Modifier.fillMaxWidth().padding(top=8.dp),horizontalArrangement=Arrangement.SpaceEvenly) {
@@ -195,7 +206,9 @@ import java.io.File
     }
     if(viewersOpen)AlertDialog(onDismissRequest={viewersOpen=false},title={Text("${viewers.size} viewers")},text={
         LazyColumn(Modifier.fillMaxWidth().heightIn(max=400.dp)) {
-            if(viewers.isEmpty())item{Text(if(viewerError)"Could not load viewers. Close and reopen to retry." else "No viewers yet.")}
+            if(viewersLoading)item{CircularProgressIndicator()}
+            if(viewerError)item{Text("Could not load viewers.");TextButton(onClick={viewerRetry++}){Text("Retry")}}
+            if(viewers.isEmpty()&&!viewersLoading&&!viewerError)item{Text("No viewers yet.")}
             items(viewers,key={it.s("viewer_id")}){row->Row(Modifier.fillMaxWidth().padding(vertical=8.dp),verticalAlignment=Alignment.CenterVertically){Avatar(vm,row.child("viewer"),42);Text(row.child("viewer").s("display_name"),Modifier.weight(1f).padding(start=10.dp));Text(storyReactionLabel(row.s("viewer_id"),reactionTotals,reactions),fontSize=16.sp,modifier=Modifier.widthIn(max=140.dp))}}
         }
     },confirmButton={TextButton(onClick={viewersOpen=false}){Text("Done")}})

@@ -197,7 +197,7 @@ internal fun createSparkPlayer(context:Context,access:MediaAccess):ExoPlayer {
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable fun SparkVideo(
     vm:SparkViewModel,path:String,modifier:Modifier=Modifier,
-    onProgress:(Float)->Unit={},onEnded:()->Unit={},paused:Boolean=false,loop:Boolean=false,controls:Boolean=true,reelId:String=""
+    onProgress:(Float)->Unit={},onEnded:()->Unit={},paused:Boolean=false,loop:Boolean=false,controls:Boolean=true,reelId:String="",onReady:()->Unit={}
 ) {
     var access by remember(path) { mutableStateOf<MediaAccess?>(null) }
     var error by remember(path) { mutableStateOf<String?>(null) }
@@ -205,6 +205,7 @@ internal fun createSparkPlayer(context:Context,access:MediaAccess):ExoPlayer {
     var resumeAt by rememberSaveable(path) { mutableLongStateOf(0L) }
     val progress by rememberUpdatedState(onProgress)
     val ended by rememberUpdatedState(onEnded)
+    val readyCallback by rememberUpdatedState(onReady)
     LaunchedEffect(path,attempt) {
         access=null;error=null
         try { access=vm.api.mediaAccess(path) }
@@ -232,6 +233,7 @@ internal fun createSparkPlayer(context:Context,access:MediaAccess):ExoPlayer {
                     }
                 }
                 val listener=object:Player.Listener {
+                    override fun onRenderedFirstFrame() { readyCallback() }
                     override fun onPlaybackStateChanged(state:Int) {
                         buffering=state==Player.STATE_BUFFERING
                         if(state==Player.STATE_ENDED)ended()

@@ -83,20 +83,24 @@ import org.json.JSONObject
 
 @Composable fun ContentInsightScreen(vm:SparkViewModel,id:String) {
     var period by remember{mutableIntStateOf(28)}
-    var content by remember(period,vm.revision){mutableStateOf<JSONObject?>(null)}
-    var error by remember(period,vm.revision){mutableStateOf<String?>(null)}
-    LaunchedEffect(id,period,vm.revision){
+    var retry by remember{mutableIntStateOf(0)}
+    var loading by remember(id,period,vm.revision,retry){mutableStateOf(true)}
+    var content by remember(id,period,vm.revision,retry){mutableStateOf<JSONObject?>(null)}
+    var error by remember(id,period,vm.revision,retry){mutableStateOf<String?>(null)}
+    LaunchedEffect(id,period,vm.revision,retry){
         try {
             val result=JSONObject(vm.api.request("/rest/v1/rpc/sparknew_content_analytics","POST",json("days_back" to period)))
             content=result.optJSONArray("content")?.rows()?.firstOrNull{it.id()==id}
-        }catch(e:CancellationException){throw e}catch(e:Exception){error=e.message}
+        }catch(e:CancellationException){throw e}catch(e:Exception){error=e.message?:"Could not load data"}finally{loading=false}
     }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp),verticalArrangement=Arrangement.spacedBy(16.dp)){
         Text(if(content?.s("kind")=="reel")"Reel insights" else "Post insights",fontSize=26.sp,fontWeight=FontWeight.Bold)
         Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
             listOf(28,7,1).forEach{days->FilterChip(selected=period==days,onClick={period=days},label={Text(if(days==1)"Today" else "$days days")})}
         }
-        error?.let{Text(it,color=MaterialTheme.colorScheme.error)}
+        if(loading)CircularProgressIndicator()
+        error?.let{Text(it,color=MaterialTheme.colorScheme.error);TextButton(onClick={retry++}){Text("Retry")}}
+        if(!loading&&error==null&&content==null)Text("Insights are unavailable for this content. It may have been removed or be outside the available reporting history.")
         content?.let{item->
             Text(item.s("body").ifBlank{"Media post"},maxLines=3)
             if(item.s("media_path").isNotBlank())PrivateImage(vm,item.s("media_path"),Modifier.fillMaxWidth().height(240.dp),videoFrame=item.s("media_type")=="video")
@@ -136,18 +140,21 @@ import org.json.JSONObject
 }
 
 @Composable fun CommunityInbox(vm:SparkViewModel) {
-    var pending by remember(vm.revision){mutableStateOf<List<JSONObject>>(emptyList())}
-    var error by remember(vm.revision){mutableStateOf<String?>(null)}
-    LaunchedEffect(vm.revision){
+    var retry by remember{mutableIntStateOf(0)}
+    var loading by remember(vm.revision,retry){mutableStateOf(true)}
+    var pending by remember(vm.revision,retry){mutableStateOf<List<JSONObject>>(emptyList())}
+    var error by remember(vm.revision,retry){mutableStateOf<String?>(null)}
+    LaunchedEffect(vm.revision,retry){
         try {
             val raw=vm.api.request("/rest/v1/rpc/sparknew_pending_comments?select=*,author:sparknew_profiles!author_id(display_name,avatar_path),post:sparknew_posts!post_id(body,media_path,media_type)&limit=100")
             pending=org.json.JSONArray(raw).rows()
-        }catch(e:CancellationException){throw e}catch(e:Exception){error=e.message}
+        }catch(e:CancellationException){throw e}catch(e:Exception){error=e.message?:"Could not load data"}finally{loading=false}
     }
     LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
         item{Text("Comments to reply to",fontSize=23.sp,fontWeight=FontWeight.Bold)}
-        error?.let{item{Text(it,color=MaterialTheme.colorScheme.error)}}
-        if(pending.isEmpty()&&error==null)item{Text("All caught up. New comments on your posts will appear here.")}
+        if(loading)item{CircularProgressIndicator()}
+        error?.let{item{Text(it,color=MaterialTheme.colorScheme.error);TextButton(onClick={retry++}){Text("Retry")}}}
+        if(pending.isEmpty()&&error==null&&!loading)item{Text("All caught up. New comments on your posts will appear here.")}
         items(pending,key={it.id()}){comment->
             OutlinedCard(Modifier.fillMaxWidth().clickable{vm.go("Comments",comment.s("post_id"),comment.id())}){
                 Row(Modifier.padding(14.dp),verticalAlignment=Alignment.CenterVertically){

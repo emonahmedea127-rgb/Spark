@@ -61,18 +61,29 @@ fun presenceLabel(vm:SparkViewModel,id:String):String {
     var chats by remember{mutableStateOf<List<JSONObject>>(emptyList())}
     var unread by remember{mutableStateOf<Map<String,Int>>(emptyMap())}
     var error by remember{mutableStateOf<String?>(null)}
+    var loading by remember{mutableStateOf(true)}
+    var query by remember{mutableStateOf("")}
+    var onlyUnread by remember{mutableStateOf(false)}
+    var retry by remember{mutableIntStateOf(0)}
+    val visibleChats=chats.filter { c ->
+        val person=c.child(if(c.s("user_a")==vm.api.userId)"b" else "a")
+        person.s("display_name").contains(query.trim(),ignoreCase=true)&&(!onlyUnread||(unread[c.id()]?:0)>0)
+    }
     val owner=LocalLifecycleOwner.current
-    LaunchedEffect(vm.revision,owner){owner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED){while(true){
+    LaunchedEffect(vm.revision,owner,retry){owner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED){while(true){
         try{
             chats=vm.api.rows("conversations","select=*,a:sparknew_profiles!user_a(*),b:sparknew_profiles!user_b(*),latest:sparknew_messages(*)&latest.order=created_at.desc&latest.limit=1&limit=100")
                 .sortedByDescending{it.optJSONArray("latest")?.optJSONObject(0)?.s("created_at")?:it.s("created_at")}
             unread=vm.api.rows("messages","select=conversation_id&sender_id=neq.${vm.api.userId}&seen_at=is.null&unsent_at=is.null&limit=1000").groupingBy{it.s("conversation_id")}.eachCount()
             error=null
-        }catch(e:CancellationException){throw e}catch(e:Exception){error=e.message}
+        }catch(e:CancellationException){throw e}catch(e:Exception){error=e.message?:"Could not load messages"}finally{loading=false}
         delay(4000)
     }}}
     LazyColumn(Modifier.fillMaxSize()){
         item{Section("Messages","New message"){vm.go("Search")}}
+        item{OutlinedTextField(query,{query=it},placeholder={Text("Search conversations")},singleLine=true,leadingIcon={Icon(Icons.Outlined.Search,null)},modifier=Modifier.fillMaxWidth().padding(horizontal=16.dp))}
+        item{FilterChip(selected=onlyUnread,onClick={onlyUnread=!onlyUnread},label={Text("Unread")},modifier=Modifier.padding(horizontal=16.dp))}
+        if(loading)item{Box(Modifier.fillMaxWidth().padding(20.dp),contentAlignment=Alignment.Center){CircularProgressIndicator()}}
         item{
             val active=vm.presenceRows.filter{it.s("user_id")!=vm.api.userId&&recentlyActive(it.s("last_active"))}
             if(active.isNotEmpty())LazyRow(contentPadding=PaddingValues(horizontal=16.dp,vertical=14.dp),horizontalArrangement=Arrangement.spacedBy(16.dp)){
@@ -84,8 +95,8 @@ fun presenceLabel(vm:SparkViewModel,id:String):String {
                 }
             }
         }
-        error?.let{item{Text(it,Modifier.padding(16.dp),color=MaterialTheme.colorScheme.error)}}
-        items(chats,key={it.id()}){c->
+        error?.let{item{Text(it,Modifier.padding(16.dp),color=MaterialTheme.colorScheme.error);TextButton(onClick={retry++}){Text("Retry")}}}
+        items(visibleChats,key={it.id()}){c->
             val person=c.child(if(c.s("user_a")==vm.api.userId)"b" else "a")
             val last=c.optJSONArray("latest")?.optJSONObject(0)
             val count=unread[c.id()]?:0
@@ -103,6 +114,7 @@ fun presenceLabel(vm:SparkViewModel,id:String):String {
                 }
             }
         }
-        if(chats.isEmpty()&&error==null)item{Empty("Say hello","Find a friend and start a conversation.",Icons.Outlined.Chat)}
+        if(chats.isNotEmpty()&&visibleChats.isEmpty())item{Text("No matching conversations",Modifier.padding(20.dp))}
+        if(chats.isEmpty()&&error==null&&!loading)item{Empty("Say hello","Find a friend and start a conversation.",Icons.Outlined.Chat)}
     }
 }
