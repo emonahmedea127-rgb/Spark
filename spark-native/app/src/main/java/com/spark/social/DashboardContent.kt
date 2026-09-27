@@ -22,16 +22,24 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.CancellationException
 import org.json.JSONObject
+import java.time.Instant
 
 @Composable fun ContentLibraryScreen(vm:SparkViewModel,content:List<JSONObject>) {
     var kind by remember{mutableStateOf("All")}
     var order by remember{mutableStateOf("Views")}
-    val filtered=remember(content,kind,order) {
-        content.filter {
+    var days by remember{mutableIntStateOf(0)}
+    var dateMenu by remember{mutableStateOf(false)}
+    var listView by remember{mutableStateOf(false)}
+    val dated=remember(content,days) {
+        val cutoff=Instant.now().minusSeconds(days.toLong()*86400)
+        content.filter{days==0||runCatching{Instant.parse(it.s("created_at"))>=cutoff}.getOrDefault(false)}
+    }
+    val filtered=remember(dated,kind,order) {
+        dated.filter {
             kind=="All" || kind=="Reels"&&it.s("kind")=="reel" ||
                 kind=="Photos"&&it.s("media_type")=="image"
         }.sortedWith(compareByDescending<JSONObject>{
-            if(order=="Views")it.optLong("views") else it.optLong("reactions")+it.optLong("comments")
+            when(order){"Newest"->runCatching{Instant.parse(it.s("created_at")).epochSecond}.getOrDefault(0L);"Views"->it.optLong("views");else->it.optLong("reactions")+it.optLong("comments")}
         }.thenByDescending{it.s("created_at")})
     }
     Column(Modifier.fillMaxSize()) {
@@ -40,11 +48,11 @@ import org.json.JSONObject
                 FilterChip(selected=kind==choice,onClick={kind=choice},label={Text(choice)})
             }
         }
-        if(content.isNotEmpty()) {
+        if(dated.isNotEmpty()) {
             Text("Content overview",Modifier.padding(14.dp),fontSize=22.sp,fontWeight=FontWeight.Bold)
             LazyRow(contentPadding=PaddingValues(horizontal=12.dp),horizontalArrangement=Arrangement.spacedBy(12.dp)) {
-                val top=listOf("Most viewed" to content.maxByOrNull{it.optLong("views")},
-                    "Most engaged" to content.maxByOrNull{it.optLong("reactions")+it.optLong("comments")})
+                val top=listOf("Most viewed" to dated.maxByOrNull{it.optLong("views")},
+                    "Most engaged" to dated.maxByOrNull{it.optLong("reactions")+it.optLong("comments")})
                 items(top){(title,item)->
                     OutlinedCard(Modifier.width(148.dp).clickable{item?.let{vm.go("Content insights",it.id())}}){
                         Box(Modifier.fillMaxWidth().height(105.dp).background(MaterialTheme.colorScheme.surfaceVariant)) {
@@ -58,11 +66,35 @@ import org.json.JSONObject
             }
         }
         Row(Modifier.fillMaxWidth().padding(horizontal=12.dp,vertical=8.dp),horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=Alignment.CenterVertically){
-            Text("All time",Modifier.weight(1f),fontWeight=FontWeight.Bold)
-            FilterChip(selected=order=="Views",onClick={order="Views"},label={Text("Views")})
-            FilterChip(selected=order=="Engagement",onClick={order="Engagement"},label={Text("Engagement")})
+            Box(Modifier.weight(1f)) {
+                TextButton(onClick={dateMenu=true}){Text(if(days==0)"All dates" else "Published: $days days");Icon(Icons.Outlined.ArrowDropDown,null)}
+                DropdownMenu(expanded=dateMenu,onDismissRequest={dateMenu=false}){
+                    listOf(0,7,28,90).forEach{value->DropdownMenuItem(text={Text(if(value==0)"All publishing dates" else "Published in last $value days")},onClick={days=value;dateMenu=false})}
+                }
+            }
+            IconButton(onClick={listView=!listView}){Icon(if(listView)Icons.Outlined.GridView else Icons.Outlined.ViewList,if(listView)"Grid view" else "List view")}
+        }
+        Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal=12.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)){
+            listOf("Newest","Views","Engagement").forEach{value->FilterChip(selected=order==value,onClick={order=value},label={Text(value)})}
         }
         if(filtered.isEmpty())Box(Modifier.fillMaxSize(),contentAlignment=Alignment.Center){Text("No content to show")}
+        else if(listView)LazyColumn(contentPadding=PaddingValues(12.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
+            items(filtered,key={it.id()}){item->
+                OutlinedCard(onClick={vm.go("Content insights",item.id())}){
+                    Row(Modifier.fillMaxWidth().padding(10.dp),verticalAlignment=Alignment.CenterVertically){
+                        Box(Modifier.size(78.dp).background(MaterialTheme.colorScheme.surfaceVariant),contentAlignment=Alignment.Center){
+                            if(item.s("media_path").isNotBlank())PrivateImage(vm,item.s("media_path"),Modifier.fillMaxSize(),videoFrame=item.s("media_type")=="video",targetPx=240)
+                            else Icon(Icons.Outlined.Description,null)
+                        }
+                        Column(Modifier.weight(1f).padding(start=12.dp)){
+                            Text(item.s("body").ifBlank{if(item.s("kind")=="reel")"Reel" else "Post"},maxLines=2,overflow=TextOverflow.Ellipsis,fontWeight=FontWeight.SemiBold)
+                            Text(ago(item.s("created_at")),fontSize=12.sp)
+                            Text("${item.optLong("views")} views · ${item.optLong("reactions")+item.optLong("comments")} engagements",fontSize=12.sp)
+                        }
+                    }
+                }
+            }
+        }
         else LazyVerticalGrid(columns=GridCells.Fixed(3),contentPadding=PaddingValues(bottom=20.dp)){
             gridItems(filtered,key={it.id()}){item->
                 Box(Modifier.fillMaxWidth().aspectRatio(.77f).padding(1.dp)

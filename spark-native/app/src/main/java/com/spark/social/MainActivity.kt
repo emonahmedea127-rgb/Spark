@@ -950,7 +950,9 @@ fun ago(raw:String):String=runCatching {
     var limit by remember(id) {
         mutableIntStateOf(60)
     }
-    var error by remember {
+    var loading by remember(id){mutableStateOf(true)}
+    var retry by remember(id){mutableIntStateOf(0)}
+    var error by remember(id) {
         mutableStateOf(false)
     }
     var conversation by remember(id) {
@@ -959,16 +961,20 @@ fun ago(raw:String):String=runCatching {
     val lifecycle=LocalLifecycleOwner.current
     val context=LocalContext.current
     val pick=rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) {
-        uri=it;once=false
+        if(it!=null){
+            val type=context.contentResolver.getType(it).orEmpty()
+            if(type.startsWith("image/")||type.startsWith("video/")){uri=it;once=false}
+            else vm.notice="Choose a photo or video."
+        }
     }
     LaunchedEffect(id) {
         try {
             conversation=vm.api.rows("conversations","select=*,a:sparknew_profiles!user_a(*),b:sparknew_profiles!user_b(*)&id=eq.$id").firstOrNull()
-        }catch(e:Exception) {
+        }catch(e:CancellationException){throw e}catch(e:Exception) {
             vm.notice=e.message
         }
     }
-    LaunchedEffect(id,vm.revision,limit,lifecycle) {
+    LaunchedEffect(id,vm.revision,limit,lifecycle,retry) {
         lifecycle.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             while(true) {
                 try {
@@ -980,7 +986,7 @@ fun ago(raw:String):String=runCatching {
                 }catch(e:Exception) {
                     if(!error)vm.notice=e.message
                     error=true
-                }
+                }finally{loading=false}
                 delay(4000)
             }
         }
@@ -1041,11 +1047,17 @@ fun ago(raw:String):String=runCatching {
                     Text("Load earlier messages")
                 }
             }
-            if(messages.isEmpty())item {
+            if(loading)item{Box(Modifier.fillMaxWidth().padding(20.dp),contentAlignment=Alignment.Center){CircularProgressIndicator()}}
+            if(error)item{TextButton(onClick={retry++}){Text("Connection interrupted · Retry")}}
+            if(messages.isEmpty()&&!loading&&!error)item {
                 Empty("Start with hello","Your messages will appear here.")
             }
         }
         if(uri!=null)Row(Modifier.fillMaxWidth().padding(horizontal=12.dp),verticalAlignment=Alignment.CenterVertically) {
+            val attachment=uri!!
+            val attachmentVideo=context.contentResolver.getType(attachment)?.startsWith("video/")==true
+            if(attachmentVideo)VideoThumbnail(vm,attachment.toString(),Modifier.size(64.dp))
+            else AsyncImage(model=attachment,contentDescription="Photo to send",modifier=Modifier.size(64.dp),contentScale=ContentScale.Crop)
             TextButton(onClick={uri=null;once=false}){Text("Remove attachment")}
             Spacer(Modifier.weight(1f))
             if(context.contentResolver.getType(uri!!)?.startsWith("image/")==true){Text("View once",fontSize=13.sp);Switch(checked=once,onCheckedChange={once=it})}
