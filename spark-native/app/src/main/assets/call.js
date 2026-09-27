@@ -20,8 +20,11 @@ window.boot = async value => {
   try {
     stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: config.video ? { facingMode: 'user' } : false });
     document.getElementById('local').srcObject = stream;
-    // Direct peer connectivity. A production TURN service is required for restrictive NATs.
-    pc = new RTCPeerConnection({ iceServers: [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun.cloudflare.com:3478'] }] });
+    let servers = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun.cloudflare.com:3478'] }];
+    try { const relay = await request('relay'); if (Array.isArray(relay.iceServers) && relay.iceServers.length) servers = relay.iceServers; }
+    catch (_) { document.getElementById('hint').textContent = 'Relay unavailable; trying a direct connection'; }
+    if (stopped) return;
+    pc = new RTCPeerConnection({ iceServers: servers });
     stream.getTracks().forEach(track => pc.addTrack(track, stream));
     pc.ontrack = event => {
       const incoming = event.streams[0] || new MediaStream([event.track]);

@@ -138,11 +138,48 @@ class SparkViewModel(app:Application):AndroidViewModel(app) {
     }
 }
 class MainActivity:ComponentActivity() {
+    private var pushIntent by mutableStateOf<Intent?>(null)
+    private val pushPermission=registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    override fun onNewIntent(intent:Intent) { super.onNewIntent(intent);pushIntent=intent }
+
     override fun onCreate(savedInstanceState:Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        pushIntent=intent
+        if(SparkPush.initialize(this)&&android.os.Build.VERSION.SDK_INT>=33) {
+            val prefs=getSharedPreferences("spark.push",Context.MODE_PRIVATE)
+            if(!prefs.getBoolean("permissionAsked",false)) {
+                prefs.edit().putBoolean("permissionAsked",true).apply()
+                pushPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
         setContent {
             val vm:SparkViewModel=viewModel()
+            LaunchedEffect(vm.me?.id()) {
+                if(vm.me!=null)lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                    runCatching { SparkPush.register(this@MainActivity) }
+                }
+            }
+            LaunchedEffect(vm.me?.id(),pushIntent) {
+                val incoming=pushIntent
+                if(vm.me!=null&&incoming!=null) {
+                    pushIntent=null
+                    val valid=incoming.getStringExtra("recipient_id")==vm.api.userId &&
+                        runCatching { Instant.parse(incoming.getStringExtra("expires_at")).isAfter(Instant.now()) }.getOrDefault(false)
+                    if(valid) {
+                        if(incoming.getStringExtra("kind")=="call") {
+                            val id=incoming.getStringExtra("target_id").orEmpty()
+                            if(runCatching { java.util.UUID.fromString(id) }.isSuccess)vm.work {
+                                val call=vm.api.rows("calls","id=eq.$id").firstOrNull()
+                                if(call!=null&&call.s("callee_id")==vm.api.userId&&call.s("status")=="ringing"&&
+                                    Instant.parse(call.s("created_at")).isAfter(Instant.now().minusSeconds(90))) {
+                                    startActivity(Intent(this@MainActivity,CallActivity::class.java).putExtra("call_id",id).putExtra("caller",false).putExtra("video",call.optBoolean("video")))
+                                } else vm.notice="This call has ended."
+                            }
+                        } else vm.go("Notifications")
+                    }
+                }
+            }
             SparkTheme(vm.dark) {
                 SparkApp(vm)
             }
@@ -1119,7 +1156,7 @@ fun ago(raw:String):String=runCatching {
             }
         }
         item {
-            Text("Spark 1.10 · A place for your people",color=MaterialTheme.colorScheme.onSurfaceVariant,fontSize=12.sp)
+            Text("Spark ${BuildConfig.VERSION_NAME} · A place for your people",color=MaterialTheme.colorScheme.onSurfaceVariant,fontSize=12.sp)
         }
     }
     if(logout)Confirm("Log out?","You can sign back in with your email and password.", {

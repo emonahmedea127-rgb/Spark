@@ -174,6 +174,7 @@ class SparkApi private constructor(private val context: Context) {
     }
     suspend fun logout() {
         try {
+            runCatching { SparkPush.unregister(context) }
             request("/auth/v1/logout?scope=local","POST")
         } finally {
             session=null

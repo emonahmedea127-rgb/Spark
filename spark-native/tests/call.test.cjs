@@ -3,12 +3,12 @@ const assert = require('node:assert/strict');
 const vm = require('node:vm');
 const fs = require('node:fs');
 const source = fs.readFileSync('app/src/main/assets/call.js', 'utf8');
-function setup({ caller = true, denied = false, earlyIce = false } = {}) {
+function setup({ caller = true, denied = false, earlyIce = false, relay = null, relayError = false } = {}) {
   const commands = [], nodes = {}, tracks = [{kind:'audio',enabled:true,stopped:false,stop(){this.stopped=true}}, {kind:'video',enabled:true,stopped:false,stop(){this.stopped=true}}];
   let polls = 0;
   const stream = {getTracks:()=>tracks,getAudioTracks:()=>[tracks[0]],getVideoTracks:()=>[tracks[1]]};
   class Peer {
-    constructor(){this.connectionState='new';this.remote=null;this.added=[];this.closed=false;Peer.last=this;}
+    constructor(config){this.config=config;this.connectionState='new';this.remote=null;this.added=[];this.closed=false;Peer.last=this;}
     addTrack(){}
     async createOffer(){return {type:'offer',sdp:'offer-sdp'}}
     async createAnswer(){assert.equal(this.remote.type,'offer');return {type:'answer',sdp:'answer-sdp'}}
@@ -20,6 +20,7 @@ function setup({ caller = true, denied = false, earlyIce = false } = {}) {
   const context={console,document:{getElementById:id=>nodes[id]??=( {textContent:'',hidden:false,plays:0,play(){this.plays++;return Promise.resolve()}} )},navigator:{mediaDevices:{getUserMedia:async()=>{if(denied)throw Error('Permission denied');return stream}}},RTCPeerConnection:Peer,setTimeout:(f,ms)=>setTimeout(f,ms===1200?0:ms),clearTimeout,Date};
   context.window=context;
   context.SparkCall={send(command,json,id){const data=JSON.parse(json);commands.push({command,data});let result={ok:true};
+    if(command==='relay'){if(relayError){queueMicrotask(()=>context.deliver(id,{error:'Relay unavailable'}));return;}result=relay??{ok:true};}
     if(command==='poll'){polls++;result=earlyIce&&polls===1?
       {call:{status:'ringing'},ice:[{id:8,candidate:{candidate:'candidate:1'}}]}:
       (!earlyIce&&polls===1||earlyIce&&polls===2)?
@@ -56,4 +57,12 @@ test('Incoming media is attached to an unmuted audio element and playback starts
 test('Speaker button invokes Android audio routing and retries audio playback',async()=>{
  const s=setup();await s.run();await s.nodes.speaker.onclick({target:s.nodes.speaker});
  assert.ok(s.commands.some(c=>c.command==='speaker'));assert.equal(s.nodes.remoteAudio.plays,1);
+});
+
+test('TURN credentials are used when the server authorizes the call',async()=>{
+ const relay={iceServers:[{urls:['turn:relay.example:3478'],username:'temporary',credential:'ephemeral'}]};
+ const s=setup({relay});await s.run();assert.deepEqual(s.Peer.last.config.iceServers,relay.iceServers);
+});
+test('Unavailable TURN falls back to direct STUN and completes signaling',async()=>{
+ const s=setup({relayError:true});await s.run();assert.match(s.Peer.last.config.iceServers[0].urls[0],/^stun:/);assert.equal(s.Peer.last.remote.type,'answer');
 });
