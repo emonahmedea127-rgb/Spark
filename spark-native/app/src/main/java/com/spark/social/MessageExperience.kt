@@ -35,6 +35,7 @@ internal fun messageReceipt(message:JSONObject):String=when {
     message.s("unsent_at").isNotBlank()->"Unsent"
     message.optBoolean("view_once")&&message.s("opened_at").isNotBlank()->"Opened · ${messageTime(message.s("opened_at"))}"
     message.s("seen_at").isNotBlank()->"Seen · ${messageTime(message.s("seen_at"))}"
+    message.s("delivered_at").isNotBlank()->"Delivered"
     else->"Sent"
 }
 @Composable fun MessageActions(own:Boolean,canEdit:Boolean,onEdit:()->Unit,onUnsend:()->Unit,onClose:()->Unit) {
@@ -52,7 +53,9 @@ internal fun messageReceipt(message:JSONObject):String=when {
     var unsending by remember{mutableStateOf(false)}
     var viewing by remember{mutableStateOf(false)}
     val ink=if(own)Color.White else MaterialTheme.colorScheme.onSurface
-    Column(Modifier.fillMaxWidth(),horizontalAlignment=if(own)Alignment.End else Alignment.Start) {
+    Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.Bottom) {
+      if(!own){Avatar(vm,message.child("sender"),26);Spacer(Modifier.width(7.dp))}
+      Column(Modifier.weight(1f),horizontalAlignment=if(own)Alignment.End else Alignment.Start) {
         Surface(color=if(own)Blue else MaterialTheme.colorScheme.surfaceContainerHigh,shape=RoundedCornerShape(18.dp),modifier=Modifier.widthIn(max=290.dp).combinedClickable(enabled=!unsent,onClick={actions=true},onLongClick={actions=true})) {
             Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(5.dp)) {
                 Text(if(unsent)"Message unsent" else message.s("body"),color=ink)
@@ -63,7 +66,8 @@ internal fun messageReceipt(message:JSONObject):String=when {
                 Text(ago(message.s("created_at"))+if(!unsent&&message.s("edited_at").isNotBlank())" · Edited" else "",fontSize=10.sp,color=ink.copy(alpha=.7f))
             }
         }
-        if(own)Text(messageReceipt(message),Modifier.padding(top=3.dp,end=4.dp),fontSize=10.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
+        if(own)Row(Modifier.padding(top=3.dp,end=4.dp),verticalAlignment=Alignment.CenterVertically){MessageStatus(message);Spacer(Modifier.width(4.dp));Text(messageReceipt(message),fontSize=10.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)}
+      }
     }
     if(actions)MessageActions(own,message.s("body").isNotBlank(),{actions=false;editing=true},{actions=false;unsending=true},{actions=false})
     if(editing)TextForm("Edit message",listOf("Message" to message.s("body")),vm,{editing=false}){values->

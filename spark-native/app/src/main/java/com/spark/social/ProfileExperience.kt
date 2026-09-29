@@ -85,6 +85,17 @@ suspend fun SparkApi.profilePeople(id:String,kind:String,offset:Int=0,size:Int=2
         }
     }
 }
+@Composable fun ProfileMutualFriends(vm:SparkViewModel,id:String) {
+    Rows(vm,"mutual:$id",{
+        val mine=vm.api.profilePeople(vm.api.userId,"friends",size=100).map{it.id()}.toSet()
+        vm.api.profilePeople(id,"friends",size=100).filter{it.id() in mine}.take(4)
+    }){mutual->
+        if(mutual.isNotEmpty())Row(Modifier.fillMaxWidth().padding(horizontal=20.dp,vertical=12.dp),verticalAlignment=Alignment.CenterVertically){
+            mutual.take(3).forEach{person->Avatar(vm,person,33){vm.go("Profile",person.id())};Spacer(Modifier.width(2.dp))}
+            Text("Followed by ${mutual.take(2).joinToString(", "){it.s("display_name")}}${if(mutual.size>2)" and others" else ""}",Modifier.padding(start=7.dp),fontSize=13.sp,maxLines=2)
+        }
+    }
+}
 @Composable fun ProfileConnectionsScreen(vm:SparkViewModel,id:String,initialKind:String) {
     var kind by rememberSaveable(id){mutableStateOf(initialKind.ifBlank{"followers"})}
     var people by remember(id,kind){mutableStateOf<List<JSONObject>>(emptyList())}
@@ -110,18 +121,121 @@ suspend fun SparkApi.profilePeople(id:String,kind:String,offset:Int=0,size:Int=2
     }
 }
 @Composable fun ProfileDashboard(vm:SparkViewModel) {
-    Rows(vm,"dashboard",{vm.api.profileCounts(vm.api.userId)}){rows->
-        val counts=rows.firstOrNull()?:JSONObject()
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),verticalArrangement=Arrangement.spacedBy(18.dp)) {
-            Text("Your Spark profile",fontSize=26.sp,fontWeight=FontWeight.Bold)
-            Text("Your audience and activity",color=MaterialTheme.colorScheme.onSurfaceVariant)
-            listOf("followers","following","friends","posts").forEach{key->OutlinedCard(Modifier.fillMaxWidth().clickable{if(key=="posts")vm.go("Profile",vm.api.userId) else vm.go("Connections",vm.api.userId,key)}){Row(Modifier.padding(20.dp),verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text(counts.optLong(key).toString(),fontSize=28.sp,fontWeight=FontWeight.Bold);Text(key.replaceFirstChar{it.uppercase()})};Icon(Icons.Outlined.ChevronRight,null)}}}
-            Button(onClick={vm.go("Edit profile")},modifier=Modifier.fillMaxWidth()){Text("Edit profile")}
+    var period by rememberSaveable { mutableIntStateOf(28) }
+    var section by rememberSaveable { mutableStateOf("Analytics") }
+    var selected by remember { mutableStateOf<JSONObject?>(null) }
+    val scope=rememberCoroutineScope()
+    var summary by remember(period,vm.revision){mutableStateOf(JSONObject())}
+    var content by remember(vm.revision){mutableStateOf<List<JSONObject>>(emptyList())}
+    var loading by remember(period,vm.revision){mutableStateOf(true)}
+    var error by remember(period,vm.revision){mutableStateOf<String?>(null)}
+    LaunchedEffect(period,vm.revision) {
+        loading=true;error=null
+        try {
+            val result=JSONObject(vm.api.request("/rest/v1/rpc/sparknew_content_analytics","POST",json("days_back" to period)))
+            summary=result.optJSONObject("summary")?:JSONObject()
+            content=result.optJSONArray("content")?.rows()?:emptyList()
+        }catch(e:CancellationException){throw e}catch(e:Exception){error=e.message}
+        finally{loading=false}
+    }
+    Column(Modifier.fillMaxSize()) {
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(12.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)){
+            listOf("Analytics","Content","Community").forEach{tab->FilterChip(selected=section==tab,onClick={section=tab},label={Text(tab)})}
+        }
+        if(section=="Content")ContentLibraryScreen(vm,content)
+        else if(section=="Community")CommunityInbox(vm)
+        else LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(14.dp)){
+            item {
+                Row(verticalAlignment=Alignment.CenterVertically){
+                    Avatar(vm,vm.me?:JSONObject(),56)
+                    Column(Modifier.padding(start=12.dp)){
+                        VerifiedName(vm,vm.me?:JSONObject())
+                        Text("Professional dashboard",color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+            if(section=="Analytics") {
+                item { Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                    listOf(28,7,1).forEach{days->FilterChip(selected=period==days,onClick={period=days},label={Text(if(days==1)"Today" else "$days days")})}
+                } }
+                if(error!=null)item{Text("Couldn't load analytics: $error",color=MaterialTheme.colorScheme.error)}
+                if(loading)item{CircularProgressIndicator()}
+                else if(error==null) {
+                    item { Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                        DashboardMetric("Views",summary.optLong("views"),Modifier.weight(1f))
+                        DashboardMetric("Engagement",summary.optLong("engagement"),Modifier.weight(1f))
+                    } }
+                    item { Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                        DashboardMetric("Followers",summary.optLong("followers"),Modifier.weight(1f))
+                        DashboardMetric("Posts & reels",summary.optLong("content_count"),Modifier.weight(1f))
+                    } }
+                    item { Text("Earnings are unavailable until monetisation is enabled.",color=MaterialTheme.colorScheme.onSurfaceVariant) }
+                }
+            }
+            if(section=="Analytics") {
+                item {
+                    Row(Modifier.fillMaxWidth().clickable{section="Content"}.padding(top=8.dp),verticalAlignment=Alignment.CenterVertically) {
+                        Text("Content",fontSize=23.sp,fontWeight=FontWeight.Bold)
+                        Icon(Icons.Outlined.ChevronRight,"All content",Modifier.padding(start=6.dp),tint=MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Text("Latest post",color=MaterialTheme.colorScheme.onSurfaceVariant,modifier=Modifier.padding(top=4.dp))
+                }
+                if(!loading&&error==null)content.maxByOrNull{it.s("created_at")}?.let{post->
+                    item { LatestContentOverview(vm,post){vm.go("Content insights",post.id())} }
+                }
+                if(content.isEmpty()&&!loading&&error==null)item{Text("No posts or reels yet.")}
+            }
+        }
+    }
+    selected?.let{post->AlertDialog(onDismissRequest={selected=null},title={Text(if(post.s("kind")=="reel")"Reel analytics" else "Post analytics")},text={
+        Column(verticalArrangement=Arrangement.spacedBy(8.dp)){
+            Text(post.s("body").ifBlank{"Media post"},maxLines=3)
+            Text("Views: ${post.optLong("views")}")
+            Text("Reactions: ${post.optLong("reactions")}")
+            Text("Comments: ${post.optLong("comments")}")
+            Text("Engagement: ${post.optLong("reactions")+post.optLong("comments")}")
+        }
+    },confirmButton={TextButton(onClick={selected=null}){Text("Close")}})}
+}
+@Composable private fun LatestContentOverview(vm:SparkViewModel,post:JSONObject,onClick:()->Unit) {
+    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min),horizontalArrangement=Arrangement.spacedBy(12.dp)) {
+        OutlinedCard(Modifier.weight(1.06f).clickable(onClick=onClick),shape=RoundedCornerShape(14.dp)) {
+            Box(Modifier.fillMaxWidth().height(238.dp).background(MaterialTheme.colorScheme.surfaceVariant)) {
+                if(post.s("media_path").isNotBlank())PrivateImage(vm,post.s("media_path"),Modifier.fillMaxSize(),androidx.compose.ui.layout.ContentScale.Crop,videoFrame=post.s("media_type")=="video")
+                else Text(post.s("body"),Modifier.align(Alignment.Center).padding(14.dp),maxLines=8,textAlign=TextAlign.Center)
+                if(post.s("media_type")=="video")Surface(Modifier.align(Alignment.BottomStart).padding(8.dp),shape=RoundedCornerShape(6.dp),color=androidx.compose.ui.graphics.Color.Black.copy(alpha=.6f)) {
+                    Icon(Icons.Outlined.Movie,"Video",Modifier.padding(4.dp).size(20.dp),tint=androidx.compose.ui.graphics.Color.White)
+                }
+            }
+            Column(Modifier.padding(10.dp)) {
+                if(post.s("media_path").isNotBlank()&&post.s("body").isNotBlank())Text(post.s("body"),maxLines=2,overflow=TextOverflow.Ellipsis,fontSize=14.sp)
+                Text(ago(post.s("created_at")),color=MaterialTheme.colorScheme.onSurfaceVariant,fontSize=12.sp,modifier=Modifier.padding(top=4.dp))
+            }
+        }
+        Column(Modifier.weight(1f).fillMaxHeight(),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+            LatestContentMetric("Views",post.optLong("views").toString(),Modifier.weight(1f),onClick=onClick)
+            LatestContentMetric("Earnings","—",Modifier.weight(1f),"Not enabled",onClick)
+            LatestContentMetric("Engagement",(post.optLong("reactions")+post.optLong("comments")).toString(),Modifier.weight(1f),onClick=onClick)
+            LatestContentMetric("Net follows","—",Modifier.weight(1f),"Not tracked",onClick)
+        }
+    }
+}
+@Composable private fun LatestContentMetric(label:String,value:String,modifier:Modifier,note:String?=null,onClick:()->Unit) {
+    Surface(modifier.fillMaxWidth().clickable(onClick=onClick),shape=RoundedCornerShape(14.dp),color=MaterialTheme.colorScheme.surfaceContainerLow) {
+        Column(Modifier.padding(horizontal=12.dp,vertical=10.dp),verticalArrangement=Arrangement.Center) {
+            Text(label,fontSize=13.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(value,fontWeight=FontWeight.Bold,fontSize=18.sp)
+            if(note!=null)Text(note,fontSize=10.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
 
-@Composable fun ProfileHero(vm:SparkViewModel,profile:JSONObject,own:Boolean,category:String,counts:JSONObject,onPhoto:(String)->Unit,onChangePhoto:(String)->Unit,onStory:()->Unit,onPosts:()->Unit) {
+@Composable private fun DashboardMetric(label:String,count:Long,modifier:Modifier=Modifier){
+    OutlinedCard(modifier){Column(Modifier.padding(16.dp)){Text(label,color=MaterialTheme.colorScheme.onSurfaceVariant);Text(count.toString(),fontSize=25.sp,fontWeight=FontWeight.Bold)}}
+}
+
+@Composable fun ProfileHero(vm:SparkViewModel,profile:JSONObject,own:Boolean,category:String,counts:JSONObject,onPhoto:(String)->Unit,onChangePhoto:(String)->Unit,onStory:()->Unit,onPosts:()->Unit,onBlock:()->Unit={},onReport:()->Unit={}) {
+    var actionsOpen by remember { mutableStateOf(false) }
     Surface {
         Column {
             Box(Modifier.fillMaxWidth().height(318.dp)) {
@@ -134,6 +248,14 @@ suspend fun SparkApi.profilePeople(id:String,kind:String,offset:Int=0,size:Int=2
                         if(own)IconButton(onClick={vm.go("Edit profile")}){Icon(Icons.Outlined.Edit,"Edit profile",tint=androidx.compose.ui.graphics.Color.White)}
                         IconButton(onClick={vm.go("Search")}){Icon(Icons.Outlined.Search,"Search",tint=androidx.compose.ui.graphics.Color.White)}
                         if(own)IconButton(onClick={vm.go("Profile settings")}){Icon(Icons.Outlined.MoreHoriz,"Profile settings",tint=androidx.compose.ui.graphics.Color.White)}
+                        else Box {
+                            IconButton(onClick={actionsOpen=true}){Icon(Icons.Outlined.MoreHoriz,"Profile options",tint=androidx.compose.ui.graphics.Color.White)}
+                            DropdownMenu(expanded=actionsOpen,onDismissRequest={actionsOpen=false}) {
+                                DropdownMenuItem(text={Text("About")},onClick={actionsOpen=false;vm.go("About",profile.id())})
+                                DropdownMenuItem(text={Text("Block")},onClick={actionsOpen=false;onBlock()})
+                                DropdownMenuItem(text={Text("Report")},onClick={actionsOpen=false;onReport()})
+                            }
+                        }
                     }
                     if(own)IconButton(onClick={onChangePhoto("cover_path")},modifier=Modifier.align(Alignment.BottomEnd).padding(end=12.dp,bottom=26.dp).background(MaterialTheme.colorScheme.surface,CircleShape)){Icon(Icons.Outlined.PhotoCamera,"Change cover photo")}
                 }
@@ -144,7 +266,7 @@ suspend fun SparkApi.profilePeople(id:String,kind:String,offset:Int=0,size:Int=2
                 }
             }
             Column(Modifier.fillMaxWidth().padding(horizontal=16.dp),horizontalAlignment=Alignment.CenterHorizontally) {
-                Text(profile.s("display_name"),Modifier.padding(top=12.dp),fontSize=28.sp,fontWeight=FontWeight.Bold,textAlign=TextAlign.Center)
+                VerifiedName(vm,profile,large=true)
                 if(category.isNotBlank())Text(category,Modifier.padding(top=3.dp),fontSize=16.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
                 ProfileStats(counts,{vm.go("Connections",profile.id(),it)},onPosts)
                 if(profile.s("bio").isNotBlank())Text(profile.s("bio"),Modifier.padding(bottom=18.dp),fontSize=17.sp,textAlign=TextAlign.Center)
@@ -152,6 +274,8 @@ suspend fun SparkApi.profilePeople(id:String,kind:String,offset:Int=0,size:Int=2
                     Button(onClick={vm.go("Dashboard")},modifier=Modifier.weight(1.15f),shape=RoundedCornerShape(8.dp),contentPadding=PaddingValues(horizontal=8.dp,vertical=12.dp)){Icon(Icons.Outlined.BarChart,null,Modifier.size(20.dp));Text(" Dashboard",fontWeight=FontWeight.SemiBold)}
                     FilledTonalButton(onClick=onStory,modifier=Modifier.weight(1f),shape=RoundedCornerShape(8.dp),contentPadding=PaddingValues(horizontal=8.dp,vertical=12.dp)){Icon(Icons.Outlined.AddCircleOutline,null,Modifier.size(20.dp));Text(" Add to story",fontWeight=FontWeight.SemiBold)}
                 }
+                if(own)TextButton(onClick={vm.go("Edit profile")},modifier=Modifier.padding(bottom=10.dp)){Icon(Icons.Outlined.Edit,null,Modifier.size(18.dp));Text(" Edit profile")}
+                if(!own)BadgeAwardAction(vm,profile)
             }
         }
     }

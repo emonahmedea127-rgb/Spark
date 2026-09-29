@@ -1,5 +1,6 @@
 'use strict';
 const pending = new Map(); let serial = 0, stream, pc, stopped = false, config, after = 0, remoteSet = false, booted = false, everConnected = false, disconnectedAt = 0;
+const queuedIce = [];
 const statusEl = document.getElementById('status');
 function request(command, data = {}) {
   return new Promise((resolve, reject) => {
@@ -19,11 +20,15 @@ window.boot = async value => {
   try {
     stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: config.video ? { facingMode: 'user' } : false });
     document.getElementById('local').srcObject = stream;
-    // Direct peer connectivity. A production TURN service is required for restrictive NATs.
-    pc = new RTCPeerConnection({ iceServers: [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun.cloudflare.com:3478'] }] });
+    let servers = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun.cloudflare.com:3478'] }];
+    try { const relay = await request('relay'); if (Array.isArray(relay.iceServers) && relay.iceServers.length) servers = relay.iceServers; }
+    catch (_) { document.getElementById('hint').textContent = 'Relay unavailable; trying a direct connection'; }
+    if (stopped) return;
+    pc = new RTCPeerConnection({ iceServers: servers });
     stream.getTracks().forEach(track => pc.addTrack(track, stream));
     pc.ontrack = event => {
       const incoming = event.streams[0] || new MediaStream([event.track]);
+      // The video element is muted; only the audio element plays remote sound.
       document.getElementById('remote').srcObject = incoming;
       const remoteAudio = document.getElementById('remoteAudio');
       remoteAudio.srcObject = incoming; remoteAudio.muted = false; remoteAudio.volume = 1;
@@ -45,7 +50,8 @@ window.boot = async value => {
         if (!config.caller && call.offer) { await pc.setRemoteDescription(call.offer); const answer = await pc.createAnswer(); await pc.setLocalDescription(answer); await request('answer', { type: answer.type, sdp: answer.sdp }); remoteSet = true; statusEl.textContent = 'Connecting…'; }
         else if (config.caller && call.answer) { await pc.setRemoteDescription(call.answer); remoteSet = true; statusEl.textContent = 'Connecting…'; }
       }
-      if (remoteSet) for (const item of result.ice) { await pc.addIceCandidate(item.candidate); after = Math.max(after, item.id); }
+      for (const item of result.ice) { queuedIce.push(item.candidate); after = Math.max(after, item.id); }
+      if (remoteSet) while (queuedIce.length) await pc.addIceCandidate(queuedIce.shift());
       if ((!everConnected && Date.now() - started > 90000) || (disconnectedAt && Date.now() - disconnectedAt > 20000)) { await hangup(); break; }
       await new Promise(resolve => setTimeout(resolve, 1200));
     }

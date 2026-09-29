@@ -120,6 +120,7 @@ class CallActivity:ComponentActivity() {
                 try {
                     val value=JSONObject(payload)
                     val result:Any=when(command) {
+                        "relay"->JSONObject(api.request("/functions/v1/spark-turn","POST",json("call_id" to callId)))
                         "poll"->json("call" to api.rows("calls","id=eq.$callId").firstOrNull(),"ice" to JSONArray(api.rows("ice","call_id=eq.$callId&user_id=neq.${api.userId}&id=gt.${value.optLong("after",0).coerceAtLeast(0)}&order=id.asc&limit=200")))
                         "offer"-> {
                             check(caller)
