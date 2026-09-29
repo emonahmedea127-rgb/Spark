@@ -25,3 +25,16 @@ test('TURN authorized call gets ephemeral ICE credentials',async()=>{const r=awa
 test('Push is disabled without webhook secret',async()=>assert.equal((await load('spark-push')()).status,503));
 test('Push rejects incorrect webhook credentials',async()=>assert.equal((await load('spark-push',{SPARK_PUSH_WEBHOOK_SECRET:'a'.repeat(32)})()).status,401));
 test('Push does not call Firebase without provider credentials',async()=>assert.equal((await load('spark-push',{SPARK_PUSH_WEBHOOK_SECRET:'a'.repeat(32)})({}, {'X-Spark-Push-Secret':'a'.repeat(32)})).status,503));
+const meteredEnv={...env,METERED_TURN_CONFIG:JSON.stringify({enabled:true,domain:'spark-test.metered.live',apiKey:'k'.repeat(32),monthlyIssueLimit:100})};
+test('Metered returns full ICE array without exposing its API key or claiming expiry',async()=>{
+ const base=turnFetch(); const handler=load('spark-turn',meteredEnv,async(url,opts)=>url.includes('.metered.live/')?Response.json([{urls:'turn:global.relay.metered.ca:443',username:'relay-user',credential:'relay-password'}]):base(url,opts));
+ const r=await handler({call_id:id});assert.equal(r.status,200);const data=await r.json();assert.equal(data.expiresIn,null);assert.equal(data.iceServers.length,1);assert.equal(JSON.stringify(data).includes('k'.repeat(32)),false);
+});
+test('Metered refuses arbitrary provider hosts',async()=>{
+ const bad={...meteredEnv,METERED_TURN_CONFIG:JSON.stringify({enabled:true,domain:'attacker.example',apiKey:'k'.repeat(32),monthlyIssueLimit:100})};assert.equal((await load('spark-turn',bad,turnFetch())({call_id:id})).status,503);
+});
+test('Metered quota stops outbound provider request',async()=>assert.equal((await load('spark-turn',meteredEnv,turnFetch({quota:false}))({call_id:id})).status,429));
+test('Metered rejects malformed ICE response',async()=>{
+ const base=turnFetch();assert.equal((await load('spark-turn',meteredEnv,async(url,opts)=>url.includes('.metered.live/')?Response.json([{urls:'https://invalid.example'}]):base(url,opts))({call_id:id})).status,503);
+});
+test('TURN rejects malformed call timestamp',async()=>assert.equal((await load('spark-turn',env,turnFetch({calls:[{...call,created_at:'invalid'}]}))({call_id:id})).status,403));

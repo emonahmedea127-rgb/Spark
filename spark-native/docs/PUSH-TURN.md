@@ -31,3 +31,19 @@ Server-only queue and allocation tables intentionally have RLS with no client po
 ## Activation record — 2026-09-28
 
 The owner explicitly approved creation of the Firebase Admin service-account key and storing it in Supabase server secrets. FIREBASE_SERVICE_ACCOUNT_JSON and SPARK_PUSH_WEBHOOK_SECRET are configured; the matching webhook secret is in Vault. Applied migration `activate_spark_push_dispatch`. Manual dispatcher invocation returned HTTP 200; four older queue items completed without registered destination devices, which is not proof of phone delivery. A dedicated test notification was then enqueued for the owner account with a registered device. Automatic dispatch reached state sent in one attempt, and the device remained registered, confirming FCM acceptance. On-device display and sound are still unverified. No credentials were committed. Cloudflare dashboard remains blocked by browser security verification after one reload; TURN was not enabled.
+
+## Metered activation, 2026-09-28
+
+The card-free 500 MB monthly trial is active for spark-emonahmed. The approved
+Spark call relay credential is stored only in Supabase METERED_TURN_CONFIG,
+not in the repository or APK. spark-turn v5 supports this provider while retaining
+call membership checks, active-call validation and allocation quotas.
+The JSON secret contains apiKey, domain, enabled and monthlyIssueLimit (1000).
+The provider bandwidth quota is separate from the allocation-count limit.
+
+This dashboard-issued relay credential is persistent until revoked; the endpoint
+returns expiresIn:null rather than claiming temporary credentials. Automatic
+credential rotation remains a production hardening task. The client must receive
+relay username/password at runtime for WebRTC, but never the credential API key.
+No APK update is needed for this server-side change. Two-phone audio/video testing
+is still required before calling the feature end-to-end verified.
