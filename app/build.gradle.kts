@@ -1,3 +1,5 @@
+import groovy.json.JsonSlurper
+
 plugins {
   alias(libs.plugins.android.application)
   alias(libs.plugins.kotlin.compose)
@@ -5,6 +7,20 @@ plugins {
   alias(libs.plugins.google.devtools.ksp)
   alias(libs.plugins.roborazzi)
   alias(libs.plugins.secrets)
+}
+
+val firebaseFile = file("google-services.json")
+val firebaseConfig = if (firebaseFile.exists()) JsonSlurper().parse(firebaseFile) as Map<*, *> else emptyMap<Any, Any>()
+val firebaseProject = firebaseConfig["project_info"] as? Map<*, *> ?: emptyMap<Any, Any>()
+val firebaseClients = firebaseConfig["client"] as? List<*> ?: emptyList<Any>()
+val firebaseClient = firebaseClients.mapNotNull { it as? Map<*, *> }.firstOrNull {
+  val info = it["client_info"] as? Map<*, *>
+  (info?.get("android_client_info") as? Map<*, *>)?.get("package_name") == "com.aistudio.sociva.social"
+} ?: emptyMap<Any, Any>()
+val firebaseClientInfo = firebaseClient["client_info"] as? Map<*, *> ?: emptyMap<Any, Any>()
+val firebaseApiKey = ((firebaseClient["api_key"] as? List<*>)?.firstOrNull() as? Map<*, *>)?.get("current_key")?.toString().orEmpty()
+require(!firebaseFile.exists() || (firebaseClientInfo["mobilesdk_app_id"] != null && firebaseApiKey.isNotBlank())) {
+  "google-services.json must contain com.aistudio.sociva.social"
 }
 
 android {
@@ -17,6 +33,11 @@ android {
     targetSdk = 36
     versionCode = 1
     versionName = "1.0"
+
+    resValue("string", "spark_firebase_app_id", firebaseClientInfo["mobilesdk_app_id"]?.toString().orEmpty())
+    resValue("string", "spark_firebase_project_id", firebaseProject["project_id"]?.toString().orEmpty())
+    resValue("string", "spark_firebase_sender_id", firebaseProject["project_number"]?.toString().orEmpty())
+    resValue("string", "spark_firebase_api_key", firebaseApiKey)
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -61,23 +82,17 @@ android {
   }
 }
 
-// Configure the Secrets Gradle Plugin to use .env and .env.example files
-// to match the convention used in Web projects.
 secrets {
   propertiesFileName = ".env"
   defaultPropertiesFileName = ".env.example"
 }
 
-// Some unused dependencies are commented out below instead of being removed.
-// This makes it easy to add them back in the future if needed.
 dependencies {
   implementation(platform(libs.androidx.compose.bom))
-  // implementation(libs.accompanist.permissions)
+  implementation(platform("com.google.firebase:firebase-bom:34.19.0"))
+  implementation("com.google.firebase:firebase-messaging")
+  implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.10.2")
   implementation(libs.androidx.activity.compose)
-  // implementation(libs.androidx.camera.camera2)
-  // implementation(libs.androidx.camera.core)
-  // implementation(libs.androidx.camera.lifecycle)
-  // implementation(libs.androidx.camera.view)
   implementation(libs.androidx.compose.material.icons.core)
   implementation(libs.androidx.compose.material.icons.extended)
   implementation(libs.androidx.compose.material3)
@@ -85,7 +100,6 @@ dependencies {
   implementation(libs.androidx.compose.ui.graphics)
   implementation(libs.androidx.compose.ui.tooling.preview)
   implementation(libs.androidx.core.ktx)
-  // implementation(libs.androidx.datastore.preferences)
   implementation(libs.androidx.lifecycle.runtime.compose)
   implementation(libs.androidx.lifecycle.runtime.ktx)
   implementation(libs.androidx.lifecycle.viewmodel.compose)
@@ -110,7 +124,6 @@ dependencies {
   implementation(libs.moshi.kotlin)
   implementation(libs.okhttp)
   implementation("io.github.webrtc-sdk:android:150.7871.01")
-  // implementation(libs.play.services.location)
   implementation(libs.retrofit)
   testImplementation(libs.androidx.compose.ui.test.junit4)
   testImplementation(libs.androidx.core)
