@@ -41,6 +41,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.example.sociva.call.CallActivity
 import com.example.sociva.data.model.Conversation
 import com.example.sociva.data.model.Message
 import com.example.sociva.data.model.User
@@ -634,10 +635,18 @@ fun ChatDetailScreen(
           }
         },
         actions = {
-          IconButton(onClick = { viewModel.showToast("Starting audio call with $participantName 📞") }) {
+          IconButton(onClick = {
+  if (participantId.isNotBlank()) {
+    context.startActivity(CallActivity.outgoingIntent(context, conversationId, participantId, participantName, false))
+  } else viewModel.showToast("Unable to start call")
+}) {
             Icon(Icons.Default.Phone, contentDescription = "Audio Call", tint = SocivaBlue)
           }
-          IconButton(onClick = { viewModel.showToast("Starting video call with $participantName 📹") }) {
+          IconButton(onClick = {
+  if (participantId.isNotBlank()) {
+    context.startActivity(CallActivity.outgoingIntent(context, conversationId, participantId, participantName, true))
+  } else viewModel.showToast("Unable to start call")
+}) {
             Icon(Icons.Default.Videocam, contentDescription = "Video Call", tint = SocivaBlue)
           }
           IconButton(onClick = {
