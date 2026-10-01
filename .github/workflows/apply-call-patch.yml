@@ -1,71 +1,21 @@
-name: Complete Spark background calls
+name: Verify Spark background calls
 
 on:
   push:
     paths:
-      - .github/workflows/apply-call-patch.yml
-
-permissions:
-  contents: write
+      - '.github/workflows/apply-call-patch.yml'
 
 jobs:
-  patch:
+  verify:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-
       - uses: actions/setup-java@v5
         with:
-          distribution: temurin
+          distribution: 'temurin'
           java-version: '17'
-
       - uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: '9.3.1'
-
-      - name: Add push incoming call intent
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path('app/src/main/java/com/example/sociva/call/CallActivity.kt')
-          s = p.read_text()
-          if 'fun incomingPushIntent(' not in s:
-              needle = '''    fun incomingIntent(context: Context, call: SparkCall) =
-      Intent(context, CallActivity::class.java)
-        .putExtra(EXTRA_CALL_ID, call.id)
-        .putExtra(EXTRA_CONVERSATION_ID, call.conversationId)
-        .putExtra(EXTRA_OTHER_USER_ID, call.callerId)
-        .putExtra(EXTRA_OTHER_NAME, "Incoming call")
-        .putExtra(EXTRA_VIDEO, call.video)
-        .putExtra(EXTRA_INCOMING, true)
-'''
-              replacement = needle + '''
-    fun incomingPushIntent(context: Context, callId: String, video: Boolean) =
-      Intent(context, CallActivity::class.java)
-        .putExtra(EXTRA_CALL_ID, callId)
-        .putExtra(EXTRA_OTHER_NAME, "Incoming call")
-        .putExtra(EXTRA_VIDEO, video)
-        .putExtra(EXTRA_INCOMING, true)
-        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-'''
-              if needle not in s:
-                  raise SystemExit('incomingIntent target not found')
-              s = s.replace(needle, replacement)
-              p.write_text(s)
-          PY
-
       - name: Compile debug Kotlin
         run: gradle :app:compileDebugKotlin --stacktrace
-
-      - name: Commit background call completion
-        shell: bash
-        run: |
-          git config user.name "Spark Build Bot"
-          git config user.email "actions@users.noreply.github.com"
-          git add app/src/main/java/com/example/sociva/call/CallActivity.kt
-          git diff --cached --quiet && exit 0
-          git commit -m "Complete background incoming call flow"
-          git push
