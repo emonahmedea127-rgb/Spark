@@ -20,7 +20,6 @@ import com.example.sociva.ui.SocivaApp
 import com.example.sociva.ui.SocivaViewModel
 import com.example.ui.theme.MyApplicationTheme
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
@@ -41,11 +40,9 @@ class MainActivity : ComponentActivity() {
     SparkPush.refresh(this)
 
     lifecycleScope.launch {
-      viewModel.currentUserId
-        .distinctUntilChanged()
-        .collect { userId ->
-          if (userId.isNotBlank()) SparkPush.refresh(this@MainActivity)
-        }
+      viewModel.currentUserId.collect { userId ->
+        if (userId.isNotBlank()) SparkPush.refresh(this@MainActivity)
+      }
     }
 
     lifecycleScope.launch {
