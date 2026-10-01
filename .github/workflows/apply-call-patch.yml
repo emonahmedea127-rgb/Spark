@@ -1,4 +1,4 @@
-name: Verify Spark background calls
+name: Build Spark APK
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
       - '.github/workflows/apply-call-patch.yml'
 
 jobs:
-  verify:
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -17,7 +17,14 @@ jobs:
       - uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: '9.3.1'
-      - name: Compile debug Kotlin
-        run: gradle :app:compileDebugKotlin --stacktrace
-      - name: Verification marker
-        run: echo "Spark background call verification complete v2"
+      - name: Build debug APK
+        run: gradle :app:assembleDebug --stacktrace
+      - name: Rename APK
+        run: cp app/build/outputs/apk/debug/app-debug.apk Spark-latest.apk
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Spark-APK
+          path: Spark-latest.apk
+          if-no-files-found: error
+          retention-days: 7
