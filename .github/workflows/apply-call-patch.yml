@@ -20,4 +20,4 @@ jobs:
       - name: Compile debug Kotlin
         run: gradle :app:compileDebugKotlin --stacktrace
       - name: Verification marker
-        run: echo "Spark background call verification complete"
+        run: echo "Spark background call verification complete v2"
