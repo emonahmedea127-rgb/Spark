@@ -1,4 +1,4 @@
-name: Patch Spark call buttons
+name: Complete Spark background calls
 
 on:
   push:
@@ -25,42 +25,47 @@ jobs:
         with:
           gradle-version: '9.3.1'
 
-      - name: Wire chat buttons to WebRTC calls
+      - name: Add push incoming call intent
         shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          p = Path('app/src/main/java/com/example/sociva/ui/screens/MessagesScreen.kt')
+          p = Path('app/src/main/java/com/example/sociva/call/CallActivity.kt')
           s = p.read_text()
-          imp = 'import com.example.sociva.call.CallActivity\n'
-          if imp not in s:
-              s = s.replace('import com.example.sociva.data.model.Conversation\n', imp + 'import com.example.sociva.data.model.Conversation\n')
-          old_audio = 'IconButton(onClick = { viewModel.showToast("Starting audio call with $participantName 📞") }) {'
-          new_audio = '''IconButton(onClick = {
-            if (participantId.isNotBlank()) {
-              context.startActivity(CallActivity.outgoingIntent(context, conversationId, participantId, participantName, false))
-            } else viewModel.showToast("Unable to start call")
-          }) {'''
-          old_video = 'IconButton(onClick = { viewModel.showToast("Starting video call with $participantName 📹") }) {'
-          new_video = '''IconButton(onClick = {
-            if (participantId.isNotBlank()) {
-              context.startActivity(CallActivity.outgoingIntent(context, conversationId, participantId, participantName, true))
-            } else viewModel.showToast("Unable to start call")
-          }) {'''
-          if old_audio not in s or old_video not in s:
-              raise SystemExit('Call button targets not found')
-          p.write_text(s.replace(old_audio, new_audio).replace(old_video, new_video))
+          if 'fun incomingPushIntent(' not in s:
+              needle = '''    fun incomingIntent(context: Context, call: SparkCall) =
+      Intent(context, CallActivity::class.java)
+        .putExtra(EXTRA_CALL_ID, call.id)
+        .putExtra(EXTRA_CONVERSATION_ID, call.conversationId)
+        .putExtra(EXTRA_OTHER_USER_ID, call.callerId)
+        .putExtra(EXTRA_OTHER_NAME, "Incoming call")
+        .putExtra(EXTRA_VIDEO, call.video)
+        .putExtra(EXTRA_INCOMING, true)
+'''
+              replacement = needle + '''
+    fun incomingPushIntent(context: Context, callId: String, video: Boolean) =
+      Intent(context, CallActivity::class.java)
+        .putExtra(EXTRA_CALL_ID, callId)
+        .putExtra(EXTRA_OTHER_NAME, "Incoming call")
+        .putExtra(EXTRA_VIDEO, video)
+        .putExtra(EXTRA_INCOMING, true)
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+'''
+              if needle not in s:
+                  raise SystemExit('incomingIntent target not found')
+              s = s.replace(needle, replacement)
+              p.write_text(s)
           PY
 
       - name: Compile debug Kotlin
         run: gradle :app:compileDebugKotlin --stacktrace
 
-      - name: Commit call button wiring
+      - name: Commit background call completion
         shell: bash
         run: |
           git config user.name "Spark Build Bot"
           git config user.email "actions@users.noreply.github.com"
-          git add app/src/main/java/com/example/sociva/ui/screens/MessagesScreen.kt
+          git add app/src/main/java/com/example/sociva/call/CallActivity.kt
           git diff --cached --quiet && exit 0
-          git commit -m "Wire chat audio and video call buttons"
+          git commit -m "Complete background incoming call flow"
           git push
