@@ -56,12 +56,17 @@ class SparkMessagingService : FirebaseMessagingService() {
     }
 
     val eventId = data["event_id"] ?: return
-    val notificationId = eventId.hashCode()
 
     if (isCall) {
       val callId = data["target_id"] ?: return
-      val isVideo = data["title"]?.contains("video", ignoreCase = true) == true
-      val intent = CallActivity.incomingPushIntent(this, callId, isVideo)
+      val isVideo = data["video"] == "true" || data["title"]?.contains("video", ignoreCase = true) == true
+      val notificationId = callId.hashCode()
+      val intent = Intent(this, CallActivity::class.java)
+        .putExtra("call_id", callId)
+        .putExtra("other_name", "Incoming call")
+        .putExtra("video", isVideo)
+        .putExtra("incoming", true)
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
       val pending = PendingIntent.getActivity(
         this,
         notificationId,
@@ -88,6 +93,7 @@ class SparkMessagingService : FirebaseMessagingService() {
       return
     }
 
+    val notificationId = eventId.hashCode()
     val launchIntent = Intent(this, MainActivity::class.java)
       .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
       .putExtra("kind", data["kind"])
