@@ -16,6 +16,15 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: '9.3.1'
+
       - name: Wire chat buttons to WebRTC calls
         shell: bash
         run: |
@@ -44,9 +53,7 @@ jobs:
           PY
 
       - name: Compile debug Kotlin
-        run: |
-          chmod +x gradlew
-          ./gradlew :app:compileDebugKotlin --stacktrace
+        run: gradle :app:compileDebugKotlin --stacktrace
 
       - name: Commit call button wiring
         shell: bash
