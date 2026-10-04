@@ -19,6 +19,7 @@ window.boot = async value => {
   document.getElementById('local').hidden = !config.video;
   try {
     stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: config.video ? { facingMode: 'user' } : false });
+    if (stopped) { stream.getTracks().forEach(track => track.stop()); return; }
     document.getElementById('local').srcObject = stream;
     let servers = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun.cloudflare.com:3478'] }];
     try { const relay = await request('relay'); if (Array.isArray(relay.iceServers) && relay.iceServers.length) servers = relay.iceServers; }
@@ -42,8 +43,19 @@ window.boot = async value => {
     };
     if (config.caller) { const offer = await pc.createOffer(); await pc.setLocalDescription(offer); await request('offer', { type: offer.type, sdp: offer.sdp }); statusEl.textContent = 'Calling…'; }
     const started = Date.now();
+    let pollFailures = 0;
     while (!stopped) {
-      const result = await request('poll', { after });
+      let result;
+      try { result = await request('poll', { after }); pollFailures = 0; }
+      catch (error) {
+        if (stopped) break;
+        // One transient signaling failure must not tear down a working media connection.
+        if (++pollFailures >= 3) throw error;
+        document.getElementById('hint').textContent = 'Signaling interrupted; retrying…';
+        await new Promise(resolve => setTimeout(resolve, 1200));
+        continue;
+      }
+      if (stopped) break;
       const call = result.call;
       if (!call || ['ended', 'declined'].includes(call.status)) { window.stopMedia(); statusEl.textContent = call?.status === 'declined' ? 'Call declined' : 'Call ended'; break; }
       if (!remoteSet) {

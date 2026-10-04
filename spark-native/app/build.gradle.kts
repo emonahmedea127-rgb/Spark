@@ -24,8 +24,8 @@ android {
         applicationId = "com.spark.social"
         minSdk = 26
         targetSdk = 35
-        versionCode = 24
-        versionName = "1.22.0"
+        versionCode = 25
+        versionName = "1.23.0"
         resValue("string", "spark_firebase_app_id", firebaseClientInfo["mobilesdk_app_id"]?.toString().orEmpty())
         resValue("string", "spark_firebase_project_id", firebaseProject["project_id"]?.toString().orEmpty())
         resValue("string", "spark_firebase_sender_id", firebaseProject["project_number"]?.toString().orEmpty())

@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const vm = require('node:vm');
 const fs = require('node:fs');
 const source = fs.readFileSync('app/src/main/assets/call.js', 'utf8');
-function setup({ caller = true, denied = false, earlyIce = false, relay = null, relayError = false } = {}) {
+function setup({ caller = true, denied = false, earlyIce = false, relay = null, relayError = false, pollErrors = 0, delayedMedia = false } = {}) {
   const commands = [], nodes = {}, tracks = [{kind:'audio',enabled:true,stopped:false,stop(){this.stopped=true}}, {kind:'video',enabled:true,stopped:false,stop(){this.stopped=true}}];
   let polls = 0;
   const stream = {getTracks:()=>tracks,getAudioTracks:()=>[tracks[0]],getVideoTracks:()=>[tracks[1]]};
@@ -17,11 +17,11 @@ function setup({ caller = true, denied = false, earlyIce = false, relay = null, 
     async addIceCandidate(c){assert.ok(this.remote, 'ICE must wait for remote description');this.added.push(c)}
     close(){this.closed=true}
   }
-  const context={console,document:{getElementById:id=>nodes[id]??=( {textContent:'',hidden:false,plays:0,play(){this.plays++;return Promise.resolve()}} )},navigator:{mediaDevices:{getUserMedia:async()=>{if(denied)throw Error('Permission denied');return stream}}},RTCPeerConnection:Peer,setTimeout:(f,ms)=>setTimeout(f,ms===1200?0:ms),clearTimeout,Date};
+  const context={console,document:{getElementById:id=>nodes[id]??=( {textContent:'',hidden:false,plays:0,play(){this.plays++;return Promise.resolve()}} )},navigator:{mediaDevices:{getUserMedia:async()=>{if(denied)throw Error('Permission denied');if(delayedMedia)await new Promise(resolve=>setTimeout(resolve,5));return stream}}},RTCPeerConnection:Peer,setTimeout:(f,ms)=>setTimeout(f,ms===1200?0:ms),clearTimeout,Date};
   context.window=context;
   context.SparkCall={send(command,json,id){const data=JSON.parse(json);commands.push({command,data});let result={ok:true};
     if(command==='relay'){if(relayError){queueMicrotask(()=>context.deliver(id,{error:'Relay unavailable'}));return;}result=relay??{ok:true};}
-    if(command==='poll'){polls++;result=earlyIce&&polls===1?
+    if(command==='poll'){if(pollErrors-->0){queueMicrotask(()=>context.deliver(id,{error:'Network temporarily unavailable'}));return;}polls++;result=earlyIce&&polls===1?
       {call:{status:'ringing'},ice:[{id:8,candidate:{candidate:'candidate:1'}}]}:
       (!earlyIce&&polls===1||earlyIce&&polls===2)?
       {call:{status:'accepted',offer:{type:'offer',sdp:'remote-offer'},answer:{type:'answer',sdp:'remote-answer'}},ice:earlyIce?[]:[{id:8,candidate:{candidate:'candidate:1'}}]}:
@@ -65,4 +65,14 @@ test('TURN credentials are used when the server authorizes the call',async()=>{
 });
 test('Unavailable TURN falls back to direct STUN and completes signaling',async()=>{
  const s=setup({relayError:true});await s.run();assert.match(s.Peer.last.config.iceServers[0].urls[0],/^stun:/);assert.equal(s.Peer.last.remote.type,'answer');
+});
+
+test('Recipient survives one signaling failure and still sends its answer',async()=>{
+ const s=setup({caller:false,pollErrors:1});await s.run();assert.equal(s.commands.filter(x=>x.command==='answer').length,1);assert.equal(s.commands.some(x=>x.command==='end'),false);
+});
+test('Persistent signaling failure releases media and ends the call after bounded retries',async()=>{
+ const s=setup({pollErrors:5});await s.run();assert.equal(s.commands.filter(x=>x.command==='poll').length,3);assert.ok(s.tracks.every(x=>x.stopped));assert.ok(s.commands.some(x=>x.command==='end'));
+});
+test('Hangup during microphone startup releases late media and never starts signaling',async()=>{
+ const s=setup({delayedMedia:true});const running=s.run();s.context.stopMedia();await running;assert.ok(s.tracks.every(x=>x.stopped));assert.equal(s.Peer.last,undefined);assert.equal(s.commands.length,0);
 });
