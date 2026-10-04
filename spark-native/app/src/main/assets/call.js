@@ -17,6 +17,7 @@ window.boot = async value => {
   if (booted) return; booted = true; config = value;
   document.getElementById('camera').hidden = !config.video;
   document.getElementById('local').hidden = !config.video;
+  let stage = 'Microphone/camera';
   try {
     stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: config.video ? { facingMode: 'user' } : false });
     if (stopped) { stream.getTracks().forEach(track => track.stop()); return; }
@@ -25,6 +26,7 @@ window.boot = async value => {
     try { const relay = await request('relay'); if (Array.isArray(relay.iceServers) && relay.iceServers.length) servers = relay.iceServers; }
     catch (_) { document.getElementById('hint').textContent = 'Relay unavailable; trying a direct connection'; }
     if (stopped) return;
+    stage = 'Connection setup';
     pc = new RTCPeerConnection({ iceServers: servers });
     stream.getTracks().forEach(track => pc.addTrack(track, stream));
     pc.ontrack = event => {
@@ -41,7 +43,9 @@ window.boot = async value => {
       if (pc.connectionState === 'failed') { statusEl.textContent = 'Could not connect'; document.getElementById('hint').textContent = 'This network may require a TURN relay. Try a different Wi-Fi network.'; }
       if (pc.connectionState === 'disconnected') { disconnectedAt = Date.now(); statusEl.textContent = 'Reconnecting…'; }
     };
+    stage = 'Sending call offer';
     if (config.caller) { const offer = await pc.createOffer(); await pc.setLocalDescription(offer); await request('offer', { type: offer.type, sdp: offer.sdp }); statusEl.textContent = 'Calling…'; }
+    stage = 'Waiting for answer';
     const started = Date.now();
     let pollFailures = 0;
     while (!stopped) {
@@ -59,7 +63,7 @@ window.boot = async value => {
       const call = result.call;
       if (!call || ['ended', 'declined'].includes(call.status)) { window.stopMedia(); statusEl.textContent = call?.status === 'declined' ? 'Call declined' : 'Call ended'; break; }
       if (!remoteSet) {
-        if (!config.caller && call.offer) { await pc.setRemoteDescription(call.offer); const answer = await pc.createAnswer(); await pc.setLocalDescription(answer); await request('answer', { type: answer.type, sdp: answer.sdp }); remoteSet = true; statusEl.textContent = 'Connecting…'; }
+        if (!config.caller && call.offer) { stage = 'Answering call'; await pc.setRemoteDescription(call.offer); const answer = await pc.createAnswer(); await pc.setLocalDescription(answer); await request('answer', { type: answer.type, sdp: answer.sdp }); remoteSet = true; statusEl.textContent = 'Connecting…'; }
         else if (config.caller && call.answer) { await pc.setRemoteDescription(call.answer); remoteSet = true; statusEl.textContent = 'Connecting…'; }
       }
       for (const item of result.ice) { queuedIce.push(item.candidate); after = Math.max(after, item.id); }
@@ -67,7 +71,7 @@ window.boot = async value => {
       if ((!everConnected && Date.now() - started > 90000) || (disconnectedAt && Date.now() - disconnectedAt > 20000)) { await hangup(); break; }
       await new Promise(resolve => setTimeout(resolve, 1200));
     }
-  } catch (e) { window.stopMedia(); statusEl.textContent = 'Call unavailable'; document.getElementById('hint').textContent = e.message; try { await request('end'); } catch (_) {} }
+  } catch (e) { window.stopMedia(); statusEl.textContent = 'Call unavailable'; document.getElementById('hint').textContent = stage + ': ' + e.message; document.getElementById('end').textContent = 'Close'; try { await request('failed'); } catch (_) {} }
 };
 document.getElementById('end').onclick = hangup;
 document.getElementById('mute').onclick = event => { const track = stream?.getAudioTracks()[0]; if (track) { track.enabled = !track.enabled; event.target.textContent = track.enabled ? 'Mute' : 'Unmute'; } };

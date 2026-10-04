@@ -44,7 +44,7 @@ test('ICE candidates received before the answer are applied after remote descrip
  assert.equal(s.commands.filter(x=>x.command==='poll')[1].data.after,8);
 });
 test('Device permission failure ends signaling without opening a peer connection',async()=>{
- const s=setup({denied:true});await s.run();assert.equal(s.Peer.last,undefined);assert.ok(s.commands.some(x=>x.command==='end'));assert.match(s.nodes.hint.textContent,/Permission denied/);
+ const s=setup({denied:true});await s.run();assert.equal(s.Peer.last,undefined);assert.ok(s.commands.some(x=>x.command==='failed'));assert.match(s.nodes.hint.textContent,/Permission denied/);
 });
 test('Mute/camera controls change tracks and repeated boot does not duplicate a call',async()=>{
  const s=setup();await s.run();const before=s.commands.length;await s.run();assert.equal(s.commands.length,before);s.nodes.mute.onclick({target:s.nodes.mute});assert.equal(s.tracks[0].enabled,false);assert.equal(s.nodes.mute.textContent,'Unmute');s.nodes.camera.onclick({target:s.nodes.camera});assert.equal(s.tracks[1].enabled,false);
@@ -68,11 +68,15 @@ test('Unavailable TURN falls back to direct STUN and completes signaling',async(
 });
 
 test('Recipient survives one signaling failure and still sends its answer',async()=>{
- const s=setup({caller:false,pollErrors:1});await s.run();assert.equal(s.commands.filter(x=>x.command==='answer').length,1);assert.equal(s.commands.some(x=>x.command==='end'),false);
+ const s=setup({caller:false,pollErrors:1});await s.run();assert.equal(s.commands.filter(x=>x.command==='answer').length,1);assert.equal(s.commands.some(x=>x.command==='failed'),false);
 });
 test('Persistent signaling failure releases media and ends the call after bounded retries',async()=>{
- const s=setup({pollErrors:5});await s.run();assert.equal(s.commands.filter(x=>x.command==='poll').length,3);assert.ok(s.tracks.every(x=>x.stopped));assert.ok(s.commands.some(x=>x.command==='end'));
+ const s=setup({pollErrors:5});await s.run();assert.equal(s.commands.filter(x=>x.command==='poll').length,3);assert.ok(s.tracks.every(x=>x.stopped));assert.ok(s.commands.some(x=>x.command==='failed'));
 });
 test('Hangup during microphone startup releases late media and never starts signaling',async()=>{
  const s=setup({delayedMedia:true});const running=s.run();s.context.stopMedia();await running;assert.ok(s.tracks.every(x=>x.stopped));assert.equal(s.Peer.last,undefined);assert.equal(s.commands.length,0);
+});
+
+test('Startup error stays visible and records failure without closing the screen',async()=>{
+ const s=setup({denied:true});await s.run();assert.equal(s.nodes.end.textContent,'Close');assert.match(s.nodes.hint.textContent,/Microphone\/camera: Permission denied/);assert.ok(s.commands.some(x=>x.command==='failed'));assert.equal(s.commands.some(x=>x.command==='end'),false);
 });

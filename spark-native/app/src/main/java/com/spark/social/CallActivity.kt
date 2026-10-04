@@ -120,16 +120,19 @@ class CallActivity:ComponentActivity() {
                 try {
                     val value=JSONObject(payload)
                     val result:Any=when(command) {
+                        "failed"-> { endCall(); json("ok" to true) }
                         "relay"->JSONObject(api.request("/functions/v1/spark-turn","POST",json("call_id" to callId)))
                         "poll"->json("call" to api.rows("calls","id=eq.$callId").firstOrNull(),"ice" to JSONArray(api.rows("ice","call_id=eq.$callId&user_id=neq.${api.userId}&id=gt.${value.optLong("after",0).coerceAtLeast(0)}&order=id.asc&limit=200")))
                         "offer"-> {
                             check(caller)
-                            api.update("calls","id=eq.$callId",json("offer" to value))
+                            val saved=JSONArray(api.request("/rest/v1/${Backend.PREFIX}calls?id=eq.$callId&status=eq.ringing","PATCH",json("offer" to value),"return=representation"))
+                            check(saved.length()==1){"Call is no longer available. Please call again."}
                             json("ok" to true)
                         }
                         "answer"-> {
                             check(!caller)
-                            api.update("calls","id=eq.$callId",json("answer" to value,"status" to "accepted"))
+                            val saved=JSONArray(api.request("/rest/v1/${Backend.PREFIX}calls?id=eq.$callId&status=eq.ringing","PATCH",json("answer" to value,"status" to "accepted"),"return=representation"))
+                            check(saved.length()==1){"The caller has ended this call. Please call again."}
                             json("ok" to true)
                         }
                         "ice"-> {
