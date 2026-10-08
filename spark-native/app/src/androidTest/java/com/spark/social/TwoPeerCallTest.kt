@@ -3,6 +3,8 @@ package com.spark.social
 import android.annotation.SuppressLint
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
+import android.webkit.WebChromeClient
+import android.webkit.ConsoleMessage
 import android.webkit.WebViewClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -70,6 +72,11 @@ class TwoPeerCallTest {
                             }
                             view.evaluateJavascript("window.deliver($id,${JSONObject().put("result",result)});",null)
                         } },"SparkCall")
+                        view.webChromeClient=object:WebChromeClient() {
+                            override fun onConsoleMessage(message:ConsoleMessage):Boolean {
+                                latest[side].set(message.message());return true
+                            }
+                        }
                         view.webViewClient=object:WebViewClient() {
                             override fun shouldInterceptRequest(v:WebView,r:WebResourceRequest):WebResourceResponse? = loader.shouldInterceptRequest(r.url)
                             override fun onPageFinished(v:WebView,url:String) {
@@ -93,7 +100,7 @@ class TwoPeerCallTest {
                                             if(s.type==='inbound-rtp'){if(s.kind==='audio'||s.mediaType==='audio')audio+=s.bytesReceived||0;if(s.kind==='video'||s.mediaType==='video')video+=s.bytesReceived||0;}
                                           });
                                         }
-                                        SparkProbe.report(JSON.stringify({state:pc?.connectionState,audio,video,stopped,tracksEnded:testStream.getTracks().every(t=>t.readyState==='ended'),hint:document.getElementById('hint').textContent}));
+                                        SparkProbe.report(JSON.stringify({state:pc && pc.connectionState,audio,video,stopped,tracksEnded:testStream.getTracks().every(t=>t.readyState==='ended'),hint:document.getElementById('hint').textContent}));
                                         if(stopped){clearInterval(probing);clearInterval(painting);oscillator.stop();audioContext.close();}
                                       },250);
                                     })();
@@ -103,7 +110,7 @@ class TwoPeerCallTest {
                         view.loadUrl("https://appassets.androidplatform.net/assets/call.html")
                     }
                 }
-                repeat(2){assertTrue("Peer $it media failed: ${latest[it].get()}",connected[it].await(45,TimeUnit.SECONDS))}
+                repeat(2){val ok=connected[it].await(45,TimeUnit.SECONDS);assertTrue("Peer $it media failed: ${latest[it].get()}",ok)}
                 scenario.onActivity {views[0].evaluateJavascript("document.getElementById('end').click();",null)}
                 repeat(2){assertTrue("Peer $it did not release tracks: ${latest[it].get()}",ended[it].await(10,TimeUnit.SECONDS))}
             } finally {
