@@ -1,6 +1,7 @@
 'use strict';
 const pending = new Map(); let serial = 0, stream, pc, stopped = false, config, after = 0, remoteSet = false, booted = false, everConnected = false, disconnectedAt = 0;
 const queuedIce = [];
+let fallbackRemoteStream;
 const statusEl = document.getElementById('status');
 function request(command, data = {}) {
   return new Promise((resolve, reject) => {
@@ -30,7 +31,12 @@ window.boot = async value => {
     pc = new RTCPeerConnection({ iceServers: servers });
     stream.getTracks().forEach(track => pc.addTrack(track, stream));
     pc.ontrack = event => {
-      const incoming = event.streams[0] || new MediaStream([event.track]);
+      let incoming = event.streams?.[0];
+      if (!incoming) {
+        fallbackRemoteStream ||= new MediaStream();
+        if (!fallbackRemoteStream.getTracks().some(track => track.id === event.track.id)) fallbackRemoteStream.addTrack(event.track);
+        incoming = fallbackRemoteStream;
+      }
       // The video element is muted; only the audio element plays remote sound.
       document.getElementById('remote').srcObject = incoming;
       const remoteAudio = document.getElementById('remoteAudio');

@@ -17,7 +17,7 @@ function setup({ caller = true, denied = false, earlyIce = false, relay = null, 
     async addIceCandidate(c){assert.ok(this.remote, 'ICE must wait for remote description');this.added.push(c)}
     close(){this.closed=true}
   }
-  const context={console,document:{getElementById:id=>nodes[id]??=( {textContent:'',hidden:false,plays:0,play(){this.plays++;return Promise.resolve()}} )},navigator:{mediaDevices:{getUserMedia:async()=>{if(denied)throw Error('Permission denied');if(delayedMedia)await new Promise(resolve=>setTimeout(resolve,5));return stream}}},RTCPeerConnection:Peer,setTimeout:(f,ms)=>setTimeout(f,ms===1200?0:ms),clearTimeout,Date};
+  const context={MediaStream:class {constructor(){this.tracks=[]}getTracks(){return this.tracks}addTrack(t){this.tracks.push(t)}},console,document:{getElementById:id=>nodes[id]??=( {textContent:'',hidden:false,plays:0,play(){this.plays++;return Promise.resolve()}} )},navigator:{mediaDevices:{getUserMedia:async()=>{if(denied)throw Error('Permission denied');if(delayedMedia)await new Promise(resolve=>setTimeout(resolve,5));return stream}}},RTCPeerConnection:Peer,setTimeout:(f,ms)=>setTimeout(f,ms===1200?0:ms),clearTimeout,Date};
   context.window=context;
   context.SparkCall={send(command,json,id){const data=JSON.parse(json);commands.push({command,data});let result={ok:true};
     if(command==='relay'){if(relayError){queueMicrotask(()=>context.deliver(id,{error:'Relay unavailable'}));return;}result=relay??{ok:true};}
@@ -79,4 +79,11 @@ test('Hangup during microphone startup releases late media and never starts sign
 
 test('Startup error stays visible and records failure without closing the screen',async()=>{
  const s=setup({denied:true});await s.run();assert.equal(s.nodes.end.textContent,'Close');assert.match(s.nodes.hint.textContent,/Microphone\/camera: Permission denied/);assert.ok(s.commands.some(x=>x.command==='failed'));assert.equal(s.commands.some(x=>x.command==='end'),false);
+});
+
+test('Streamless video track does not replace already attached remote audio',async()=>{
+ const s=setup();await s.run();const audio={id:'a',kind:'audio'},video={id:'v',kind:'video'};
+ s.Peer.last.ontrack({streams:[],track:audio});const incoming=s.nodes.remoteAudio.srcObject;
+ s.Peer.last.ontrack({streams:[],track:video});s.Peer.last.ontrack({streams:[],track:audio});
+ assert.equal(s.nodes.remoteAudio.srcObject,incoming);assert.deepEqual(incoming.getTracks(),[audio,video]);
 });
