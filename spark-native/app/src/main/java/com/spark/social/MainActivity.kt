@@ -157,7 +157,12 @@ class MainActivity:ComponentActivity() {
             val vm:SparkViewModel=viewModel()
             LaunchedEffect(vm.me?.id()) {
                 if(vm.me!=null)lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-                    runCatching { SparkPush.register(this@MainActivity) }
+                    while(true) {
+                        val registered=retryPushRegistration { SparkPush.register(this@MainActivity) }
+                        if(registered)break
+                        vm.notice="Call alerts could not connect. Retrying while Spark is open."
+                        delay(60000)
+                    }
                 }
             }
             LaunchedEffect(vm.me?.id(),pushIntent) {

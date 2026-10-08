@@ -24,7 +24,7 @@ class SparkApplication:android.app.Application() {
 
 object SparkPush {
     private val registrationScope=CoroutineScope(SupervisorJob()+Dispatchers.IO)
-    fun refresh(context:Context) { registrationScope.launch { runCatching { register(context.applicationContext) } } }
+    fun refresh(context:Context) { registrationScope.launch { retryPushRegistration { register(context.applicationContext) } } }
     fun initialize(context:Context):Boolean {
         val appId=context.getString(R.string.spark_firebase_app_id)
         if(appId.isBlank())return false
@@ -39,7 +39,7 @@ object SparkPush {
         }.getOrDefault(false)
     }
     suspend fun register(context:Context) {
-        if(!initialize(context))return
+        check(initialize(context)){"Push notifications could not initialize."}
         val api=SparkApi.get(context)
         if(!api.signedIn)return
         val token=FirebaseMessaging.getInstance().token.await()
